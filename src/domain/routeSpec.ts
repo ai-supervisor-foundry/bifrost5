@@ -24,8 +24,20 @@ const DEFAULT_RESERVED_OWNERS = ['foundry*', 'apps', 'admin', 'api', 'control', 
 const DEFAULT_DENY_IPS = ['127.0.0.0/8', '169.254.0.0/16', '0.0.0.0/8'];
 
 const OWNER_REGEX = /^[a-z0-9]+$/;
-const NAME_REGEX = /^[a-z0-9][a-z0-9-]{0,38}$/;
+const NAME_REGEX = /^(?!.*--)[a-z0-9][a-z0-9-]{0,38}$/;
 const HOST_REGEX = /^[a-z0-9.-]+$/;
+
+export function isValidId(id: string): boolean {
+  if (typeof id !== 'string') {
+    return false;
+  }
+  const parts = id.split('--');
+  if (parts.length !== 2) {
+    return false;
+  }
+  const [owner, name] = parts;
+  return OWNER_REGEX.test(owner) && NAME_REGEX.test(name);
+}
 
 function matchesPattern(value: string, pattern: string): boolean {
   if (pattern.endsWith('*')) {
@@ -114,7 +126,9 @@ export function validateRouteSpec(
     errors.push('target is required and must be a string');
   }
 
-  const reservedOwners = policy.reservedOwners ?? DEFAULT_RESERVED_OWNERS;
+  const reservedOwners = Array.from(
+    new Set([...DEFAULT_RESERVED_OWNERS, ...(policy.reservedOwners ?? [])])
+  );
   const denyIps = policy.denyIps ?? DEFAULT_DENY_IPS;
   const publicOwners = policy.publicOwners ?? [];
 
