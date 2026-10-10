@@ -105,5 +105,20 @@ if ! "$CHECK_SCRIPT" "$TMP_ROOT/excluded"; then
   exit 1
 fi
 
+# Test 9: Runtime directories (logs, .memory, .worktrees) must not fail even if containing 'foundry'
+echo "Running Test 9: Runtime directories with forbidden word..."
+mkdir -p "$TMP_ROOT/runtime/logs"
+mkdir -p "$TMP_ROOT/runtime/.memory"
+mkdir -p "$TMP_ROOT/runtime/.worktrees"
+echo '{"message": "foundry log entry"}' > "$TMP_ROOT/runtime/logs/x.jsonl"
+echo "foundry memory state" > "$TMP_ROOT/runtime/.memory/state.txt"
+echo "foundry worktree details" > "$TMP_ROOT/runtime/.worktrees/branch.txt"
+
+if ! "$CHECK_SCRIPT" "$TMP_ROOT/runtime"; then
+  echo "FAIL: Runtime directories should not trigger failures" >&2
+  exit 1
+fi
+
 echo "All tests passed successfully."
 exit 0
+

@@ -4,3 +4,6 @@ dynamic/*.yml
 .env*
 *.tmp
 node_modules/
+logs/
+.memory/
+.worktrees/

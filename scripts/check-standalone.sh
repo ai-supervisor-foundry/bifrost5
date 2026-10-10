@@ -37,7 +37,7 @@ is_foundry_allowed() {
 }
 
 # Excluded from scanning:
-# .git, node_modules, docs/plan, BACKUPS, and the script itself and its test
+# .git, node_modules, docs/plan, BACKUPS, logs, .memory, .worktrees, and the script itself and its test
 is_excluded() {
   local rel_path="$1"
   rel_path="${rel_path#./}"
@@ -52,6 +52,15 @@ is_excluded() {
     return 0
   fi
   if [[ "$rel_path" == BACKUPS || "$rel_path" == BACKUPS/* ]]; then
+    return 0
+  fi
+  if [[ "$rel_path" == logs || "$rel_path" == logs/* ]]; then
+    return 0
+  fi
+  if [[ "$rel_path" == .memory || "$rel_path" == .memory/* ]]; then
+    return 0
+  fi
+  if [[ "$rel_path" == .worktrees || "$rel_path" == .worktrees/* ]]; then
     return 0
   fi
   if [[ "$rel_path" == "scripts/check-standalone.sh" ]]; then
