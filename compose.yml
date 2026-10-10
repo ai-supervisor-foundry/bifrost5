@@ -8,10 +8,15 @@ services:
       - "--providers.file.watch=true"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.web.http.middlewares=edgekit-security@file"
+      - "--accesslog=true"
+      - "--accesslog.format=json"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--accesslog.bufferingSize=100"
     ports:
       - "127.0.0.1:${EDGEKIT_HTTP_PORT:-18080}:80"
     volumes:
       - ./dynamic:/etc/traefik/dynamic:ro
+      - ./logs/traefik:/var/log/traefik
     networks:
       - edgekit-net
     restart: unless-stopped
