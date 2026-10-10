@@ -5,7 +5,7 @@ import { RouteManager } from '../application/routeManager.ts';
 import { FileRouteStore } from '../adapters/fileStore.ts';
 import { TraefikFileRenderer } from '../adapters/traefikRenderer.ts';
 import { FileQuotaState } from '../adapters/fileQuotaState.ts';
-import { deriveId, type Policy } from '../domain/routeSpec.ts';
+import { deriveId, isValidId, type Policy } from '../domain/routeSpec.ts';
 import type { Clock } from '../domain/ports.ts';
 
 class RealClock implements Clock {
@@ -126,6 +126,10 @@ async function main() {
         const id = positionals[0] || (typeof flags['id'] === 'string' ? flags['id'] : undefined);
         if (!id) {
           process.stderr.write('unregister requires an id\n');
+          process.exit(2);
+        }
+        if (!isValidId(id)) {
+          process.stderr.write(`Validation failed: invalid id '${id}'\n`);
           process.exit(2);
         }
         await manager.unregister(id);

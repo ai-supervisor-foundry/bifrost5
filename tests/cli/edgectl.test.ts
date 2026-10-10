@@ -400,6 +400,31 @@ test('unregister removes both', async () => {
   }
 });
 
+test('unregister with invalid id prints error to stderr and exits 2', async () => {
+  const tmpDir = await createTempDir('edgectl-test-unreg-invalid-');
+  const stateDir = path.join(tmpDir, 'state');
+  const dynamicDir = path.join(tmpDir, 'dynamic');
+  const policyFile = path.join(tmpDir, 'policy.json');
+
+  try {
+    await fs.mkdir(dynamicDir, { recursive: true });
+    await fs.writeFile(policyFile, JSON.stringify(SAMPLE_POLICY, null, 2));
+
+    const env = {
+      EDGEKIT_STATE_DIR: stateDir,
+      EDGEKIT_DYNAMIC_DIR: dynamicDir,
+      EDGEKIT_POLICY: policyFile,
+      EDGEKIT_ENABLED: '1',
+    };
+
+    const res = await runEdgectl(['unregister', 'security'], env);
+    assert.equal(res.code, 2);
+    assert.match(res.stderr, /Validation failed/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('reconcile removes an orphan .yml placed in the dynamic dir', async () => {
   const tmpDir = await createTempDir('edgectl-test-reconcile-');
   const stateDir = path.join(tmpDir, 'state');

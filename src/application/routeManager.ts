@@ -1,5 +1,5 @@
 import type { RouteSpec, Policy } from '../domain/routeSpec.ts';
-import { validateRouteSpec } from '../domain/routeSpec.ts';
+import { validateRouteSpec, isValidId } from '../domain/routeSpec.ts';
 import type { RouteStorePort, RouteRenderPort, QuotaStatePort, Clock } from '../domain/ports.ts';
 
 export interface RouteManagerDeps {
@@ -100,6 +100,9 @@ export class RouteManager {
   }
 
   async unregister(id: string): Promise<boolean> {
+    if (!isValidId(id)) {
+      throw new Error(`Validation failed: invalid id '${id}'`);
+    }
     await this.deps.store.delete(id);
     await this.deps.renderer.remove(id);
     return true;
