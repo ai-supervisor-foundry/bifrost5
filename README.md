@@ -106,7 +106,7 @@ To get started with edge-kit from scratch:
 
 A policy file controls allowed hostnames, CIDR boundaries per owner, reserved owners, and public access permissions.
 
-`reservedOwners` configured in the policy are merged with built-in defaults (`foundry*`, `apps`, `admin`, `api`, `control`, `connect`), so operators only need to add custom names:
+`reservedOwners` configured in the policy are merged with built-in defaults (see `DEFAULT_RESERVED_OWNERS` in `src/domain/routeSpec.ts`; they include `apps`, `admin`, `api`, `control`, `connect`), so operators only need to add custom names:
 
 ```json
 {
