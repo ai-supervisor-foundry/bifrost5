@@ -1,4 +1,14 @@
 http:
+  routers:
+    edgekit-probe-block:
+      priority: 1000
+      entryPoints:
+        - web
+      rule: "PathPrefix(`/.env`) || PathPrefix(`/.git`) || PathPrefix(`/vendor/phpunit`) || PathPrefix(`/cgi-bin`) || PathPrefix(`/wp-admin`) || PathPrefix(`/wp-login.php`) || PathPrefix(`/phpunit`) || PathPrefix(`/actuator`) || PathPrefix(`/server-status`)"
+      middlewares:
+        - edgekit-security
+      service: edgekit-blackhole
+
   middlewares:
     edgekit-security:
       headers:
@@ -24,3 +34,9 @@ http:
         authRequestHeaders:
           - Cf-Access-Jwt-Assertion
         trustForwardHeader: false
+
+  services:
+    edgekit-blackhole:
+      loadBalancer:
+        servers:
+          - url: http://127.0.0.1:9
