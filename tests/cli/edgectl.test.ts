@@ -461,7 +461,7 @@ test('reconcile removes an orphan .yml placed in the dynamic dir', async () => {
 
     // 2. Place an orphan file in dynamicDir
     const orphanPath = path.join(dynamicDir, 'orphan--stray.yml');
-    await fs.writeFile(orphanPath, 'dummy yaml');
+    await fs.writeFile(orphanPath, '# managed-by: edgekit\ndummy yaml');
 
     // 3. Run reconcile
     const resReconcile = await runEdgectl(['reconcile'], env);

@@ -2,9 +2,11 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { stringify } from 'yaml';
 import type { RouteSpec } from '../domain/routeSpec.ts';
+import { isValidId } from '../domain/routeSpec.ts';
 import type { RouteRenderPort } from '../domain/ports.ts';
 import { atomicWrite } from './fileStore.ts';
 
+const MANAGED_MARKER = '# managed-by: edgekit';
 const HOST_REGEX = /^[a-z0-9.-]+$/;
 
 export class TraefikFileRenderer implements RouteRenderPort {
@@ -19,13 +21,12 @@ export class TraefikFileRenderer implements RouteRenderPort {
       throw new Error(`Invalid host '${spec.host}': host contains character outside [a-z0-9.-]`);
     }
 
-    const parts = (spec.id || '').split('--');
-    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    if (!isValidId(spec.id)) {
       throw new Error(`Invalid id '${spec.id}': id must match <owner>--<name>`);
     }
 
+    const parts = spec.id.split('--');
     const owner = parts[0];
-    const name = parts[1];
     if (spec.owner && spec.owner !== owner) {
       throw new Error(`Invalid id '${spec.id}': owner mismatch with '${spec.owner}'`);
     }
@@ -33,6 +34,20 @@ export class TraefikFileRenderer implements RouteRenderPort {
 
   async write(spec: RouteSpec): Promise<void> {
     this.validateSpec(spec);
+
+    const targetPath = path.join(this.dynamicDir, `${spec.id}.yml`);
+
+    try {
+      const existingContent = await fs.readFile(targetPath, 'utf8');
+      if (!existingContent.startsWith(MANAGED_MARKER)) {
+        throw new Error(`Refusing to overwrite unmanaged file '${targetPath}'`);
+      }
+    } catch (err: unknown) {
+      const nodeErr = err as NodeJS.ErrnoException;
+      if (nodeErr.code !== 'ENOENT') {
+        throw err;
+      }
+    }
 
     const pathPrefix = spec.pathPrefix.replace(/\/+$/, '');
 
@@ -82,14 +97,21 @@ export class TraefikFileRenderer implements RouteRenderPort {
       http: httpObj,
     };
 
-    const yamlContent = stringify(doc);
-    const targetPath = path.join(this.dynamicDir, `${spec.id}.yml`);
+    const yamlContent = `${MANAGED_MARKER}\n` + stringify(doc);
     await atomicWrite(targetPath, yamlContent);
   }
 
   async remove(id: string): Promise<boolean> {
+    if (!isValidId(id)) {
+      throw new Error(`Invalid id '${id}': id must match <owner>--<name>`);
+    }
+
     const filePath = path.join(this.dynamicDir, `${id}.yml`);
     try {
+      const content = await fs.readFile(filePath, 'utf8');
+      if (!content.startsWith(MANAGED_MARKER)) {
+        return false;
+      }
       await fs.unlink(filePath);
       return true;
     } catch (err: unknown) {
@@ -121,7 +143,20 @@ export class TraefikFileRenderer implements RouteRenderPort {
       if (name === 'security.yml') {
         continue;
       }
-      ids.push(name.slice(0, -'.yml'.length));
+      const filePath = path.join(this.dynamicDir, name);
+      try {
+        const content = await fs.readFile(filePath, 'utf8');
+        if (!content.startsWith(MANAGED_MARKER)) {
+          continue;
+        }
+        ids.push(name.slice(0, -'.yml'.length));
+      } catch (err: unknown) {
+        const nodeErr = err as NodeJS.ErrnoException;
+        if (nodeErr.code === 'ENOENT') {
+          continue;
+        }
+        throw err;
+      }
     }
 
     return ids.sort();

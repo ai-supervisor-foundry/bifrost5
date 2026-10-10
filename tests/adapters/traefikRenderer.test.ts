@@ -189,8 +189,8 @@ test('listIds lists ids ignoring security.yml and .tmp files', async () => {
 
     // Seed directory with various files
     await fs.writeFile(path.join(tmpDir, 'security.yml'), 'security: true');
-    await fs.writeFile(path.join(tmpDir, 'alice--blog.yml'), 'content');
-    await fs.writeFile(path.join(tmpDir, 'bob--app.yml'), 'content');
+    await fs.writeFile(path.join(tmpDir, 'alice--blog.yml'), '# managed-by: edgekit\ncontent');
+    await fs.writeFile(path.join(tmpDir, 'bob--app.yml'), '# managed-by: edgekit\ncontent');
     await fs.writeFile(path.join(tmpDir, 'pending.tmp'), 'temp');
     await fs.writeFile(path.join(tmpDir, '.tmp-123.tmp'), 'temp');
     await fs.writeFile(path.join(tmpDir, 'notes.txt'), 'notes');

@@ -113,11 +113,18 @@ export class RouteManager {
     return routes;
   }
 
-  async reconcile(): Promise<{ written: string[]; removed: string[] }> {
+  async reconcile(): Promise<{ written: string[]; removed: string[]; skipped?: { id: string; errors: string[] }[] }> {
     const storeRoutes = await this.deps.store.list();
-    const storeRouteMap = new Map<string, RouteSpec>();
+    const validStoreRouteMap = new Map<string, RouteSpec>();
+    const skipped: { id: string; errors: string[] }[] = [];
+
     for (const r of storeRoutes) {
-      storeRouteMap.set(r.id, r);
+      const valResult = validateRouteSpec(r, this.deps.policy);
+      if (valResult.ok) {
+        validStoreRouteMap.set(r.id, valResult.spec);
+      } else {
+        skipped.push({ id: r.id, errors: valResult.errors });
+      }
     }
 
     const rendererIds = await this.deps.renderer.listIds();
@@ -126,22 +133,30 @@ export class RouteManager {
     const written: string[] = [];
     const removed: string[] = [];
 
-    // 1. Remove orphans: renderer ids not in the store
+    // 1. Remove orphans: renderer ids not in the valid store routes
     for (const rid of rendererIds) {
-      if (!storeRouteMap.has(rid)) {
+      if (!validStoreRouteMap.has(rid)) {
         await this.deps.renderer.remove(rid);
         removed.push(rid);
       }
     }
 
     // 2. Rewrite missing / ensure renderer matches store
-    for (const [id, spec] of storeRouteMap) {
+    for (const [id, spec] of validStoreRouteMap) {
       if (!rendererIdSet.has(id)) {
         await this.deps.renderer.write(spec);
         written.push(id);
       }
     }
 
-    return { written, removed };
+    const result: { written: string[]; removed: string[]; skipped?: { id: string; errors: string[] }[] } = {
+      written,
+      removed,
+    };
+    if (skipped.length > 0) {
+      result.skipped = skipped;
+    }
+
+    return result;
   }
 }

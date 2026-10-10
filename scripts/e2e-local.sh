@@ -147,7 +147,7 @@ else
 fi
 
 # Step 9: reconcile removes a planted orphan yml
-echo "planted orphan" > "${TMP_DYNAMIC}/orphan--stale.yml"
+echo -e "# managed-by: edgekit\nplanted orphan" > "${TMP_DYNAMIC}/orphan--stale.yml"
 if [ -f "${TMP_DYNAMIC}/orphan--stale.yml" ]; then
   "${EDGECTL}" reconcile >/dev/null 2>&1 || true
   if [ ! -f "${TMP_DYNAMIC}/orphan--stale.yml" ]; then
