@@ -65,10 +65,13 @@ export class TraefikFileRenderer implements RouteRenderPort {
       middlewares.push('edgekit-access-jwt@file');
     }
 
+    const barePath = `/p/${spec.id}`;
+    const slashPath = `/p/${spec.id}/`;
+
     const httpObj: Record<string, any> = {
       routers: {
         [spec.id]: {
-          rule: `Host(\`${spec.host}\`) && PathPrefix(\`${pathPrefix}\`)`,
+          rule: `Host(\`${spec.host}\`) && (Path(\`${barePath}\`) || PathPrefix(\`${slashPath}\`))`,
           service: spec.id,
           middlewares,
         },

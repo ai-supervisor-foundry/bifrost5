@@ -39,6 +39,11 @@ test('golden test: render alice--blog spec matches tests/golden/alice--blog.yml 
       true,
       `Rendered YAML does not match golden file byte-for-byte.\nRendered:\n${renderedBytes.toString('utf8')}\nGolden:\n${goldenBytes.toString('utf8')}`
     );
+
+    const parsed: any = parse(renderedBytes.toString('utf8'));
+    const ruleString: string = parsed.http.routers['alice--blog'].rule;
+    assert.equal(ruleString.includes('/p/alice--blog/'), true, 'Rule must contain /p/alice--blog/ with trailing slash');
+    assert.equal(ruleString.includes('PathPrefix(`/p/alice--blog`)'), false, 'Rule must never contain bare PathPrefix(`/p/alice--blog`)');
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }

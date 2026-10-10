@@ -2,7 +2,8 @@
 http:
   routers:
     alice--blog:
-      rule: Host(`sites.example.com`) && PathPrefix(`/p/alice--blog`)
+      rule: Host(`sites.example.com`) && (Path(`/p/alice--blog`) ||
+        PathPrefix(`/p/alice--blog/`))
       service: alice--blog
       middlewares:
         - edgekit-security@file
