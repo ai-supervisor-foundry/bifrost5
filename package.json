@@ -1,0 +1,11 @@
+{
+  "name": "edge-kit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "yaml": "^2.7.0"
+  }
+}

@@ -1,0 +1,32 @@
+name: edgekit
+
+services:
+  traefik:
+    image: traefik:v3
+    command:
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.middlewares=edgekit-security@file"
+    ports:
+      - "127.0.0.1:${EDGEKIT_HTTP_PORT:-18080}:80"
+    volumes:
+      - ./dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - edgekit-net
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    networks:
+      - edgekit-net
+    restart: unless-stopped
+    profiles:
+      - tunnel
+
+networks:
+  edgekit-net:
+    name: edgekit-net

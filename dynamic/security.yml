@@ -1,0 +1,26 @@
+http:
+  middlewares:
+    edgekit-security:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        customFrameOptionsValue: SAMEORIGIN
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: no-referrer-when-downgrade
+        customResponseHeaders:
+          X-Robots-Tag: "noindex, nofollow"
+          server: ""
+      rateLimit:
+        average: 30
+        period: 1s
+        burst: 60
+
+    edgekit-access-jwt:
+      forwardAuth:
+        address: http://access-verifier:9000/verify
+        authRequestHeaders:
+          - Cf-Access-Jwt-Assertion
+        trustForwardHeader: false
