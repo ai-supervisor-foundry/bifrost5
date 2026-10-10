@@ -112,11 +112,11 @@ const cases: TestCase[] = [
     name: '8. alice vs alice-bob collision prevention (owner alice cannot take alice-bob)',
     input: {
       owner: 'alice',
-      id: 'alice--bob--blog',
+      id: 'alice--bob-blog',
       host: 'sites.example.com',
       target: 'http://10.20.0.5:3000',
     },
-    expectOk: true, // alice owns id 'alice--bob--blog' (name 'bob--blog' is valid), owner alice-bob is illegal
+    expectOk: true, // alice owns id 'alice--bob-blog' (name 'bob-blog' is valid), owner alice-bob is illegal
   },
   {
     name: '9. reserved owner foundry* prefix match',
