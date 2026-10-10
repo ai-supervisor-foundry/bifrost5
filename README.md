@@ -48,13 +48,69 @@ The CLI tool `bin/edgectl` provides the following commands:
   EDGEKIT_ENABLED=1 bin/edgectl reconcile
   ```
 
+## Cold start
+
+To get started with edge-kit from scratch:
+
+1. Clone the repository and install dependencies:
+   ```bash
+   git clone <repo-url> edge-kit
+   cd edge-kit
+   npm ci
+   ```
+
+2. Create the policy configuration file (e.g. `policy.json`):
+   ```json
+   {
+     "reservedOwners": ["ops", "system"],
+     "allowedHosts": ["sites.example.com"],
+     "ownerCidrs": {
+       "alice": ["10.20.0.0/16"]
+     }
+   }
+   ```
+
+3. Configure environment variables:
+   ```bash
+   export EDGEKIT_STATE_DIR=/var/lib/edgekit/state
+   export EDGEKIT_DYNAMIC_DIR=/var/lib/edgekit/dynamic
+   export EDGEKIT_POLICY=/var/lib/edgekit/policy.json
+   export EDGEKIT_ENABLED=1
+   ```
+
+4. Prepare directories and copy `dynamic/security.yml` into the dynamic directory:
+   ```bash
+   mkdir -p "$EDGEKIT_STATE_DIR" "$EDGEKIT_DYNAMIC_DIR"
+   cp dynamic/security.yml "$EDGEKIT_DYNAMIC_DIR/security.yml"
+   ```
+
+5. Start edge-kit containers with Docker Compose (tunnel profile and `TUNNEL_TOKEN` are optional):
+   ```bash
+   docker compose up -d
+   # Or with Cloudflare tunnel enabled:
+   # TUNNEL_TOKEN="<token>" docker compose --profile tunnel up -d
+   ```
+
+6. Register a route and verify it:
+   ```bash
+   bin/edgectl register \
+     --owner alice \
+     --name blog \
+     --host sites.example.com \
+     --target http://10.20.0.5:3000
+
+   bin/edgectl list
+   ```
+
 ## Policy JSON Example
 
-A policy file controls allowed hostnames, CIDR boundaries per owner, reserved owners, and public access permissions:
+A policy file controls allowed hostnames, CIDR boundaries per owner, reserved owners, and public access permissions.
+
+`reservedOwners` configured in the policy are merged with built-in defaults (`foundry*`, `apps`, `admin`, `api`, `control`, `connect`), so operators only need to add custom names:
 
 ```json
 {
-  "reservedOwners": ["admin", "api", "control", "connect"],
+  "reservedOwners": ["ops", "system", "internal"],
   "allowedHosts": ["sites.example.com", "test.example.com"],
   "ownerCidrs": {
     "alice": ["10.20.0.0/16"],
@@ -65,13 +121,17 @@ A policy file controls allowed hostnames, CIDR boundaries per owner, reserved ow
 }
 ```
 
+## Private Routes and Access Verification
+
+Private routes need an Access JWT verifier service at `http://access-verifier:9000/verify` which this kit does not provide yet. Private routes fail closed until it exists.
+
 ## Safety Rules
 
 The kit enforces strict boundaries across all operations:
 
 1. **Owner and Name Format**: Owner must match `^[a-z0-9]+$` (no hyphens). Route ID is `<owner>--<name>` where name matches `^[a-z0-9][a-z0-9-]{0,38}$`. This prevents collision between owners like `alice` and `alice-bob`.
 2. **Derived Path Prefix**: `pathPrefix` is automatically derived as `/p/<id>` and cannot be customized by callers.
-3. **Reserved Owners**: Configured reserved owners and patterns (e.g. `admin`, `api`, `control`, `connect`) are strictly refused.
+3. **Reserved Owners**: Configured reserved owners and patterns (merged with built-in defaults) are strictly refused.
 4. **Allowed Hostnames**: Hostnames must match the operator allow-list. Host values with backticks or invalid characters are rejected.
 5. **IP Target Validation**: Targets must be IPv4 literals matching the owner's permitted CIDR. DNS names, IPv6, loopback (`127.0.0.0/8`), link-local (`169.254.0.0/16`), and `0.0.0.0/8` are refused.
 6. **Rate Limiting & Caps**: Per-owner maximum route caps and registration rate limits are enforced at the application layer.
@@ -100,3 +160,4 @@ The kit enforces strict boundaries across all operations:
 - Access JWT verifier service
 - tunnel/DNS CLI wiring
 - Access app automation
+
