@@ -1,0 +1,6 @@
+desired/
+dynamic/*.yml
+!dynamic/security.yml
+.env*
+*.tmp
+node_modules/
