@@ -1,0 +1,19 @@
+http:
+  routers:
+    alice--blog:
+      rule: Host(`sites.example.com`) && PathPrefix(`/p/alice--blog`)
+      service: alice--blog
+      middlewares:
+        - edgekit-security@file
+        - strip-alice--blog
+        - edgekit-access-jwt@file
+  middlewares:
+    strip-alice--blog:
+      stripPrefix:
+        prefixes:
+          - /p/alice--blog
+  services:
+    alice--blog:
+      loadBalancer:
+        servers:
+          - url: http://10.20.0.5:3000
