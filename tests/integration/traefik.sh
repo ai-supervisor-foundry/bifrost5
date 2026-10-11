@@ -71,7 +71,8 @@ while [ "${SECONDS}" -lt "${DEADLINE}" ]; do
     ROUTER="$(echo "${ROUTERS_JSON}" | jq -c '.[] | select(.name == "alice--blog@file")' 2>/dev/null || true)"
     if [ -n "${ROUTER}" ]; then
       RULE="$(echo "${ROUTER}" | jq -r '.rule // empty')"
-      if [[ "${RULE}" == *"PathPrefix"* ]] && [[ "${RULE}" == *"/p/alice--blog"* ]]; then
+      STATUS_FIELD="$(echo "${ROUTER}" | jq -r '.status // empty')"
+      if [[ "${RULE}" == *"PathPrefix"* ]] && [[ "${RULE}" == *"/p/alice--blog"* ]] && [ "${STATUS_FIELD}" = "enabled" ]; then
         FOUND=true
         break
       fi
@@ -81,12 +82,12 @@ while [ "${SECONDS}" -lt "${DEADLINE}" ]; do
 done
 
 if [ "${FOUND}" != "true" ]; then
-  echo "Router alice--blog@file was not found with required rule within 30s" >&2
+  echo "Router alice--blog@file was not found enabled with required rule within 30s" >&2
   exit 1
 fi
 
 # Then ALSO drop a malformed file broken.yml into the dynamic dir, wait 5 s,
-# and print (do not assert) whether router alice--blog@file is still listed — print a line BAD_FILE_BEHAVIOUR: router_still_listed=<true|false>
+# and print whether router alice--blog@file is still listed - print a line BAD_FILE_BEHAVIOUR: router_still_listed=<true|false>
 echo "invalid: yaml: [unbalanced: {{{" > "${TMP_DYN}/broken.yml"
 sleep 5
 
@@ -100,4 +101,9 @@ if [ -n "${ROUTERS_AFTER}" ] && echo "${ROUTERS_AFTER}" | jq -e '. | type == "ar
 fi
 
 echo "BAD_FILE_BEHAVIOUR: router_still_listed=${STILL_LISTED}"
+# Traefik keeps the last good configuration when a file fails to parse, so the router must remain.
+if [ "${STILL_LISTED}" != "true" ]; then
+  echo "FAIL: router alice--blog@file disappeared after a malformed file was added" >&2
+  exit 1
+fi
 exit 0

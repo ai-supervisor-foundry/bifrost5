@@ -3,8 +3,12 @@
   "description": "Bifrost5 Edge-kit: Cloudflare tunnel and Traefik route registration",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "ci": "./scripts/ci.sh"
   },
   "dependencies": {
     "yaml": "^2.7.0"
