@@ -1,0 +1,21 @@
+# Probe-block router: known vulnerability-scanner paths for this edge.
+# Idea copied from the read-only edge traefik/dynamic reference: a
+# high-priority file-provider router matches well-known scanner paths and
+# discards them to a dead local service instead of forwarding to any real
+# backend, so scanners never reach an app and never consume its quota.
+http:
+  routers:
+    edgekit-scanner-block:
+      rule: "PathPrefix(`/.env`) || PathPrefix(`/wp-login.php`) || PathPrefix(`/wp-admin`) || PathPrefix(`/.git`) || PathPrefix(`/phpmyadmin`) || PathPrefix(`/xmlrpc.php`)"
+      entryPoints:
+        - web
+      priority: 1000
+      middlewares:
+        - edgekit-security@file
+      service: edgekit-scanner-blackhole
+
+  services:
+    edgekit-scanner-blackhole:
+      loadBalancer:
+        servers:
+          - url: http://127.0.0.1:9
