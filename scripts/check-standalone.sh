@@ -37,7 +37,7 @@ is_foundry_allowed() {
 }
 
 # Excluded from scanning:
-# .git, node_modules, docs/plan, BACKUPS, logs, .memory, .worktrees, and the script itself and its test
+# .git, node_modules, BACKUPS, logs, .memory, .worktrees, and the script itself and its test
 is_excluded() {
   local rel_path="$1"
   rel_path="${rel_path#./}"
@@ -46,9 +46,6 @@ is_excluded() {
     return 0
   fi
   if [[ "$rel_path" == node_modules || "$rel_path" == node_modules/* ]]; then
-    return 0
-  fi
-  if [[ "$rel_path" == docs/plan || "$rel_path" == docs/plan/* ]]; then
     return 0
   fi
   if [[ "$rel_path" == BACKUPS || "$rel_path" == BACKUPS/* ]]; then
