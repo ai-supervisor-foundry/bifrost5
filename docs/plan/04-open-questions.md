@@ -1,5 +1,5 @@
 ---
-title: Edge Kit — open questions
+title: Bifrost5 Edge-kit — open questions
 status: OPEN (items marked DECIDED follow the 2026-10-10 reviews and operator answers)
 ---
 

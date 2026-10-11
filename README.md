@@ -1,4 +1,4 @@
-# edge-kit
+# Bifrost5 Edge-kit
 
 Standalone Cloudflare tunnel and Traefik edge kit providing a secure, declarative route registration contract (`edgectl`).
 

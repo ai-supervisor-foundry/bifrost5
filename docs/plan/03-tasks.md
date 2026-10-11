@@ -1,5 +1,5 @@
 ---
-title: Edge Kit — tasks, acceptance criteria, validation
+title: Bifrost5 Edge-kit — tasks, acceptance criteria, validation
 status: PROPOSED (review fixes applied 2026-10-10)
 ---
 
