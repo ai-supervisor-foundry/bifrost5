@@ -60,13 +60,13 @@ while IFS= read -r -d '' env_file; do
   fi
 done < <(find . -type f -name ".env*" -print0)
 
-# 3. Any string that looks like a Cloudflare token or private key in tracked files
-# Check tracked files via git ls-files if inside git repo, otherwise check all files in tree.
+# 3. Any string that looks like a Cloudflare token or private key in tracked or untracked (non-ignored) files
+# Check tracked and untracked (not ignored) files via git ls-files -co --exclude-standard if inside git repo, otherwise check all files in tree.
 tracked_files=()
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   while IFS= read -r -d '' tf; do
     [ -f "$tf" ] && tracked_files+=("$tf")
-  done < <(git ls-files -z)
+  done < <(git ls-files -z -co --exclude-standard)
 else
   while IFS= read -r -d '' tf; do
     clean_tf="${tf#./}"
