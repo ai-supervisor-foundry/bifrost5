@@ -89,15 +89,13 @@ if "$CHECK_SCRIPT" "$TMP_ROOT/supervisor2" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Test 8: Excluded directories (.git, node_modules, docs/plan, BACKUPS) must not fail even if containing 'foundry'
+# Test 8: Excluded directories (.git, node_modules, BACKUPS) must not fail even if containing 'foundry'
 echo "Running Test 8: Excluded directories with forbidden word..."
 mkdir -p "$TMP_ROOT/excluded/.git"
 mkdir -p "$TMP_ROOT/excluded/node_modules"
-mkdir -p "$TMP_ROOT/excluded/docs/plan"
 mkdir -p "$TMP_ROOT/excluded/BACKUPS"
 echo "foundry" > "$TMP_ROOT/excluded/.git/config"
 echo "foundry" > "$TMP_ROOT/excluded/node_modules/pkg.json"
-echo "foundry" > "$TMP_ROOT/excluded/docs/plan/doc.md"
 echo "foundry" > "$TMP_ROOT/excluded/BACKUPS/old.txt"
 
 if ! "$CHECK_SCRIPT" "$TMP_ROOT/excluded"; then

@@ -45,7 +45,7 @@ docker run -d \
   --name "${CONTAINER_NAME}" \
   -v "${TMP_DYN}:/dynamic:ro" \
   -p 127.0.0.1::8080 \
-  traefik:v3 \
+  traefik:v3.7.13 \
   --providers.file.directory=/dynamic \
   --providers.file.watch=true \
   --api.insecure=true \

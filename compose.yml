@@ -2,7 +2,7 @@ name: edgekit
 
 services:
   traefik:
-    image: traefik:v3
+    image: traefik:v3.7.13
     command:
       - "--providers.file.directory=/etc/traefik/dynamic"
       - "--providers.file.watch=true"
@@ -22,7 +22,7 @@ services:
     restart: unless-stopped
 
   cloudflared:
-    image: cloudflare/cloudflared
+    image: cloudflare/cloudflared:2026.9.3
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}

@@ -30,7 +30,7 @@ export interface CloudflareDnsListResponse {
 
 /**
  * Cloudflare DNS records API endpoint path template.
- * UNVERIFIED: Finding CLAIM-2 and findings file do not verify this specific path for DNS records.
+ * UNVERIFIED: this path has not been checked against the Cloudflare API reference yet.
  */
 export const DNS_RECORDS_PATH_TEMPLATE = '/client/v4/zones/{zone_id}/dns_records';
 

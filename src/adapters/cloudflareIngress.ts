@@ -36,7 +36,7 @@ export interface CloudflareConfigurationsResponse {
 
 /**
  * Cloudflare tunnel configuration API endpoint path template.
- * Finding CLAIM-2 in docs/plan/05-findings.md verifies GET and PUT of the ingress list
+ * The tunnel configuration API accepts GET and PUT of the ingress list (source: https://developers.cloudflare.com/api/)
  * at /accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations with no ETag required or supported.
  */
 export const TUNNEL_CONFIG_PATH_TEMPLATE = '/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations';

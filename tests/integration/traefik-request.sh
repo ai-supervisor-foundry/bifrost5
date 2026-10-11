@@ -17,7 +17,7 @@ trap cleanup EXIT
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Backend
-docker run -d --name "${BACKEND}" nginx:alpine >/dev/null
+docker run -d --name "${BACKEND}" nginx:1.29.4-alpine >/dev/null
 docker exec "${BACKEND}" sh -c "echo ${MARKER} > /usr/share/nginx/html/index.html"
 BACKEND_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${BACKEND}")"
 if [ -z "${BACKEND_IP}" ]; then
@@ -51,7 +51,7 @@ cp "${REPO_ROOT}/dynamic/security.yml" "${TMP_DYN}/"
 docker run -d --name "${TRAEFIK}" \
   -v "${TMP_DYN}:/etc/traefik/dynamic:ro" \
   -p 127.0.0.1::80 \
-  traefik:v3 \
+  traefik:v3.7.13 \
   --providers.file.directory=/etc/traefik/dynamic \
   --providers.file.watch=true \
   --entrypoints.web.address=:80 >/dev/null
