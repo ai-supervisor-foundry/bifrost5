@@ -6,6 +6,9 @@ set -euo pipefail
 # - log:       ${EDGEKIT_LOG_DIR:-<repo>/logs}/traefik/access.log (compose mounts ./logs/traefik)
 # - interval:  EDGEKIT_ROTATE_DAYS (default 5); state file <log dir>/traefik/.last_rotation
 # - archive:   <log dir>/traefik/archive/<YYYY-MM-DD>/access-<timestamp>.log, then xz -9e or gzip -9
+# - retention: after a successful rotation, keeps only the newest 5 archived files
+#              across all archive/<date>/ dirs; older ones (and any date dir left
+#              empty by that pruning) are deleted
 # - signal:    docker kill -s USR1 on EDGEKIT_TRAEFIK_CONTAINER (default edgekit-traefik-1)
 # Exits 0 with a message when the log is missing, empty, or rotation is not due.
 # Fails closed (exit 1, nothing moved) if docker is missing or errors, or the log dir is not writable.
@@ -112,4 +115,17 @@ elif command -v gzip >/dev/null 2>&1; then
 fi
 
 echo "${NOW}" > "${STATE_FILE}"
+
+# Retention: keep only the newest MAX_ARCHIVES files across all archive/<date>/ dirs.
+MAX_ARCHIVES=5
+mapfile -t ARCHIVED_FILES < <(find "${ARCHIVE_BASE}" -type f -name 'access-*.log*' 2>/dev/null | LC_ALL=C sort)
+ARCHIVE_COUNT=${#ARCHIVED_FILES[@]}
+if (( ARCHIVE_COUNT > MAX_ARCHIVES )); then
+  PRUNE_COUNT=$((ARCHIVE_COUNT - MAX_ARCHIVES))
+  for ((i = 0; i < PRUNE_COUNT; i++)); do
+    rm -f "${ARCHIVED_FILES[$i]}"
+  done
+  find "${ARCHIVE_BASE}" -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null || true
+fi
+
 echo "Rotation complete. Archived log: ${ARCHIVE_FILE}"
