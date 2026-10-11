@@ -1,8 +1,8 @@
-# Bifrost5 Edge-kit
+# edge-kit
 
 ## Purpose
 
-edge-kit publishes HTTP routes through Traefik's file provider behind an optional Cloudflare tunnel. The CLI `bin/edgectl` registers, unregisters, lists and reconciles routes. Each route is rendered as a Traefik YAML file in a dynamic directory. Traefik serves them on `127.0.0.1:18080` by default. The `cloudflared` service in `compose.yml` forwards public traffic to Traefik when the `tunnel` profile is used.
+edge-kit publishes HTTP routes through Traefik's file provider, optionally behind a Cloudflare tunnel. The CLI `bin/edgectl` registers, unregisters, lists and reconciles routes. Each route is rendered as a Traefik YAML file in `EDGEKIT_DYNAMIC_DIR`. Traefik serves them on `127.0.0.1:18080` by default. With the `tunnel` profile, the `cloudflared` service in `compose.yml` forwards public traffic to Traefik.
 
 ## Requirements
 
@@ -16,8 +16,8 @@ edge-kit publishes HTTP routes through Traefik's file provider behind an optiona
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `EDGEKIT_STATE_DIR` | none (required) | Route specs, `edgectl.lock`, quota state |
-| `EDGEKIT_DYNAMIC_DIR` | none | Rendered Traefik YAML files |
-| `EDGEKIT_POLICY` | none | Path to the policy JSON file |
+| `EDGEKIT_DYNAMIC_DIR` | none (required) | Rendered Traefik YAML files |
+| `EDGEKIT_POLICY` | none (required) | Path to the policy JSON file |
 | `EDGEKIT_ENABLED` | `0` | Must be `1` for `register`, `unregister` and `reconcile`. Otherwise they exit 3. `list` always works |
 | `EDGEKIT_HTTP_PORT` | `18080` | Host port for Traefik's HTTP entrypoint, bound to `127.0.0.1` in `compose.yml` |
 | `EDGEKIT_LOG_DIR` | `<repo>/logs` | Root for Traefik access logs (`traefik/access.log`) used by log rotation |
@@ -26,7 +26,21 @@ edge-kit publishes HTTP routes through Traefik's file provider behind an optiona
 | `EDGEKIT_REOPEN_TIMEOUT` | `10` | Seconds to wait for `access.log` to reappear after rotation |
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never printed or logged. Keep files that hold it at mode 600 |
 
-`bin/edgectl` requires `EDGEKIT_STATE_DIR`. The CLI exits 1 if `EDGEKIT_DYNAMIC_DIR` or `EDGEKIT_POLICY` is missing.
+The CLI exits 1 unless all of `EDGEKIT_STATE_DIR`, `EDGEKIT_DYNAMIC_DIR` and `EDGEKIT_POLICY` are set.
+
+## Run the stack
+
+```bash
+export EDGEKIT_STATE_DIR=/var/lib/edgekit/state
+export EDGEKIT_DYNAMIC_DIR="$PWD/dynamic"
+export EDGEKIT_POLICY=/var/lib/edgekit/policy.json
+export EDGEKIT_ENABLED=1
+mkdir -p logs/traefik "$EDGEKIT_STATE_DIR"
+docker compose up -d
+docker compose --profile tunnel up -d    # also starts cloudflared; needs TUNNEL_TOKEN
+```
+
+`compose.yml` mounts `./dynamic` into Traefik, so `EDGEKIT_DYNAMIC_DIR` must point at that directory for Traefik to load the routes. `dynamic/security.yml` is tracked; other `dynamic/*.yml` files are generated and gitignored.
 
 ## Commands
 
@@ -40,18 +54,13 @@ All commands go through `bin/edgectl`, which runs the CLI under `flock`.
 | `reconcile` | Removes rendered files that have no matching route, and re-creates missing ones | yes |
 
 ```bash
-export EDGEKIT_STATE_DIR=/var/lib/edgekit/state
-export EDGEKIT_DYNAMIC_DIR=/var/lib/edgekit/dynamic
-export EDGEKIT_POLICY=/var/lib/edgekit/policy.json
-export EDGEKIT_ENABLED=1
-
 bin/edgectl register --owner alice --name blog \
   --host sites.example.com --target http://10.20.0.5:3000
 bin/edgectl list
 bin/edgectl unregister alice--blog
 ```
 
-Exit codes: `0` success, `2` validation or usage error, `3` mutation while disabled, `1` other failure.
+Exit codes: `0` success, `2` validation or usage error (including the per-owner cap and the registration rate limit), `3` mutation while disabled, `1` other failure.
 
 The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
 
@@ -74,26 +83,24 @@ The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
 
 - `allowedHosts`: the only hosts a route may use.
 - `ownerCidrs`: the IPv4 ranges each owner's targets must fall in.
-- `reservedOwners`: merged with the built-in list in `DEFAULT_RESERVED_OWNERS` (`src/domain/routeSpec.ts`). A trailing `*` matches a prefix.
+- `reservedOwners`: merged with the built-in list `DEFAULT_RESERVED_OWNERS` in `src/domain/routeSpec.ts`. A trailing `*` matches a prefix.
 - `denyIps`: when set, replaces the default deny list (`127.0.0.0/8`, `169.254.0.0/16`, `0.0.0.0/8`).
 - `publicOwners`: owners allowed to register `--access public`. Routes are `private` by default.
 
 ## Safety rules
 
-1. Owner matches `^[a-z0-9]+$`, so no hyphens. Name matches `^[a-z0-9][a-z0-9-]{0,38}$` and contains no `--`. This stops `alice` and `alice-bob` from colliding.
+1. Owner matches `^[a-z0-9]+$`, so no hyphens. Name matches `^[a-z0-9][a-z0-9-]{0,38}$`. This stops `alice` and `alice-bob` from colliding.
 2. Reserved owners are refused.
 3. Host must be in `allowedHosts` and match `^[a-z0-9.-]+$`.
 4. Target must be `http://<IPv4 literal>:<port>`. DNS names and IPv6 are refused. The IP must be inside the owner's CIDRs and outside the deny list.
-5. Callers cannot set `pathPrefix`. It is always `/p/<id>`.
-6. Public access requires the owner to be in `publicOwners`.
-7. Per-owner route caps (default 20) and a registration rate limit (default 10 per minute) apply.
-8. Writes are atomic: a temp file with a non-YAML extension, then rename.
-9. `reconcile` and `unregister` only touch files that start with `# managed-by: edgekit`. Files without the marker are never overwritten or removed.
+5. `pathPrefix` is always `/p/<id>/`. A caller-supplied value that differs is an error.
+6. `--access public` requires the owner to be in `publicOwners`.
+7. Per-owner route cap (20) and registration rate limit (10 per 60-second window) apply.
+8. Writes are atomic: a `.tmp` file, then rename.
+9. Existing files without the `# managed-by: edgekit` marker are never overwritten. `unregister` and `reconcile` only remove marked files.
 10. All state changes run under `flock`.
 11. `edgekit-security@file` is always the first middleware on every router.
-12. Private routes need an Access JWT verifier at `http://access-verifier:9000/verify`, which this kit does not provide yet. Private routes fail closed until it exists.
-
-## Rate limiting
+12. Private routes use `edgekit-access-jwt@file`, which forwards to `http://access-verifier:9000/verify`. This kit does not provide that verifier yet, so private routes fail closed until it exists.
 
 `dynamic/security.yml` applies `edgekit-security-ratelimit` to every route: average 20 requests per second, burst 60, keyed on the `Cf-Connecting-Ip` header. Requests without that header share one bucket.
 
@@ -111,7 +118,7 @@ The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
   bash tests/scripts/ops.test.sh
   bash tests/scripts/rotate-traefik-logs.test.sh
   ```
-- End-to-end definition-of-done scenario in temp dirs (no Docker):
+- End-to-end definition-of-done scenario (no Docker). It runs in temp dirs with `EDGEKIT_ENABLED=1` and prints PASS or FAIL per step. It covers a successful register, refused owners and targets, the disabled exit code, unregister (including a second run), and reconcile removing an orphan file:
   ```bash
   ./scripts/e2e-local.sh
   ```
@@ -120,7 +127,7 @@ The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
   ./tests/integration/traefik.sh          # Traefik loads the generated config
   ./tests/integration/traefik-request.sh  # real requests: public reaches backend, private refused
   ```
-- Full gate, the same one GitHub CI runs (needs `jq`, `curl` and Docker):
+- Full gate, the same one GitHub CI runs (needs `jq`, `curl` and Docker). It runs every layer above in order and stops at the first failure:
   ```bash
   npm run ci
   ```
