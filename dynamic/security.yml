@@ -10,7 +10,15 @@ http:
       service: edgekit-blackhole
 
   middlewares:
+    # Traefik v3 rejects a middleware that declares two types (headers + rateLimit),
+    # so the security chain is split into single-type middlewares and chained.
     edgekit-security:
+      chain:
+        middlewares:
+          - edgekit-security-headers
+          - edgekit-security-ratelimit
+
+    edgekit-security-headers:
       headers:
         stsSeconds: 31536000
         stsIncludeSubdomains: true
@@ -23,10 +31,14 @@ http:
         customResponseHeaders:
           X-Robots-Tag: "noindex, nofollow"
           server: ""
+
+    edgekit-security-ratelimit:
       rateLimit:
-        average: 30
+        average: 20
         period: 1s
         burst: 60
+        sourceCriterion:
+          requestHeaderName: Cf-Connecting-Ip
 
     edgekit-access-jwt:
       forwardAuth:
