@@ -19,6 +19,10 @@ edge-kit manages HTTP ingress via Traefik (using its file provider) behind Cloud
 - `EDGEKIT_POLICY`: Path to the policy JSON configuration file defining CIDRs, host allow-lists, and reserved owners.
 - `EDGEKIT_ENABLED`: Master switch for mutating operations (`register`, `unregister`, `reconcile`). Defaults to `0`. Must be set to `1` to permit modifications; when unset or `0`, mutations are refused with exit code 3.
 - `EDGEKIT_HTTP_PORT`: Port exposed on the host for Traefik HTTP entrypoint (defaults to `18080`).
+- `EDGEKIT_LOG_DIR`: Root log directory used by `scripts/rotate_traefik_logs.sh` (defaults to `<repo>/logs`). The access log lives at `$EDGEKIT_LOG_DIR/traefik/access.log`, which `compose.yml` mounts from `./logs/traefik`.
+- `EDGEKIT_ROTATE_DAYS`: Minimum days between Traefik access log rotations (defaults to `5`; digits only, `010` means ten).
+- `EDGEKIT_TRAEFIK_CONTAINER`: Name of the Traefik container signaled with USR1 after rotation (defaults to `edgekit-traefik-1`).
+- `EDGEKIT_REOPEN_TIMEOUT`: Seconds to wait for Traefik to recreate `access.log` after the signal (defaults to `10`).
 - `TUNNEL_TOKEN`: Cloudflare tunnel token used by the cloudflared service in `compose.yml`. Must never be printed or logged. Permissions for files containing this secret should be restricted (mode 600).
 
 ## Commands
@@ -86,6 +90,7 @@ To get started with edge-kit from scratch:
 
 5. Start edge-kit containers with Docker Compose (tunnel profile and `TUNNEL_TOKEN` are optional):
    ```bash
+   mkdir -p logs/traefik
    docker compose up -d
    # Or with Cloudflare tunnel enabled:
    # TUNNEL_TOKEN="<token>" docker compose --profile tunnel up -d
@@ -125,6 +130,12 @@ A policy file controls allowed hostnames, CIDR boundaries per owner, reserved ow
 
 Private routes need an Access JWT verifier service at `http://access-verifier:9000/verify` which this kit does not provide yet. Private routes fail closed until it exists.
 
+## Rate limiting
+
+`dynamic/security.yml` applies `edgekit-security-ratelimit` to every route: an average of 20 requests per second with a burst of 60, counted per client using the `Cf-Connecting-Ip` request header (set by Cloudflare, so cloudflared is the normal source; the HTTP port is bound to 127.0.0.1).
+
+Verified behaviour (`tests/integration/traefik-request.sh`): a flood from one header value gets 429 while a different value is still served. A request with no `Cf-Connecting-Ip` header is NOT refused; all header-less requests (for example local ones) share a single bucket and are limited together.
+
 ## Safety Rules
 
 The kit enforces strict boundaries across all operations:
@@ -152,7 +163,12 @@ The kit enforces strict boundaries across all operations:
   ```
 - **Integration tests (requires docker)**:
   ```bash
-  ./tests/integration/traefik.sh
+  ./tests/integration/traefik.sh          # router loads in Traefik
+  ./tests/integration/traefik-request.sh  # real requests: public reaches backend, private refused
+  ```
+- **Full local gate** (what CI runs; unit, standalone, shell, e2e, docker integration):
+  ```bash
+  npm run ci
   ```
 
 ## Not done yet
