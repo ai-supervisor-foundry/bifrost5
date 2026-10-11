@@ -47,6 +47,7 @@ Optional keys: `denyIps`, `publicOwners`. Built-in reserved owners (`apps`, `adm
 | Domain rules: route spec, safety, ports | `src/domain/` |
 | Use cases: register, unregister, reconcile | `src/application/` |
 | Cloudflare, Traefik renderer, file store | `src/adapters/` |
+| Access JWT verifier (`node:http` server, port 9000) | `src/verifier/` |
 | CLI entry (`bin/edgectl` runs `src/cli/main.ts` under `flock`) | `src/cli/` |
 | Traefik file-provider config, security middleware | `dynamic/` (`security.yml` is tracked; other `*.yml` are generated and gitignored) |
 | Tunnel + router stack | `compose.yml` |
@@ -77,6 +78,8 @@ Mutations with the switch off exit with code 3. `edgectl` refuses to run without
 | `EDGEKIT_TRAEFIK_CONTAINER` | `edgekit-traefik-1` | Container signalled with USR1 after rotation |
 | `EDGEKIT_REOPEN_TIMEOUT` | `10` | Seconds to wait for `access.log` to reappear after rotation |
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never print or log it. Keep secret files at mode 600 |
+| `CF_ACCESS_TEAM_DOMAIN` | none | Required by `access-verifier`: Cloudflare Access team domain for JWKS (`https://<domain>/cdn-cgi/access/certs`) |
+| `CF_ACCESS_AUD` | none | Required by `access-verifier`: expected `aud` claim on the Access JWT |
 
 ## Rules
 1. Never push to `main`. Ship by branch + PR. Why: main stays green and reviewable.
@@ -101,7 +104,7 @@ Enforced in `src/domain/routeSpec.ts` and `src/application/`. Keep these intact.
 - `edgekit-security@file` middleware is always first on every router.
 
 ## Behaviour to know
-- Private routes fail closed. They need an Access JWT verifier at `http://access-verifier:9000/verify`, which this kit does not provide yet.
+- Private routes fail closed. `edgekit-access-jwt@file` forwards the `Cf-Access-Jwt-Assertion` header to `http://access-verifier:9000/verify` (`src/verifier/server.ts`), which checks the RS256 signature against JWKS cached from `CF_ACCESS_TEAM_DOMAIN`, `exp`, and `aud == CF_ACCESS_AUD`. Missing header, bad signature, expired token or wrong `aud` all return 401.
 - Rate limit (`dynamic/security.yml`): average 20 req/s, burst 60, keyed on the `Cf-Connecting-Ip` header. Requests without that header share one bucket.
 - Traefik log rotation is not scheduled by compose. Example cron (not installed): `17 3 * * * cd /path/to/edge-kit && ./scripts/rotate_traefik_logs.sh >> logs/rotate.log 2>&1`.
 - The tunnel container only starts with `--profile tunnel`.
@@ -123,6 +126,5 @@ Gate: `npm run ci` (`./scripts/ci.sh`). It stops at the first failing step, prin
 Fast loop: `npm test`. Full proof: `npm run ci`.
 
 ## Not done yet
-- Access JWT verifier service
 - Tunnel and DNS wiring in the CLI (`src/adapters/cloudflareDns.ts` and `cloudflareIngress.ts` exist, not yet wired to `edgectl`)
 - Cloudflare Access app automation

@@ -25,6 +25,8 @@ edge-kit publishes HTTP routes through Traefik's file provider, optionally behin
 | `EDGEKIT_TRAEFIK_CONTAINER` | `edgekit-traefik-1` | Container signalled with USR1 after rotation |
 | `EDGEKIT_REOPEN_TIMEOUT` | `10` | Seconds to wait for `access.log` to reappear after rotation |
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never printed or logged. Keep files that hold it at mode 600 |
+| `CF_ACCESS_TEAM_DOMAIN` | none (required for `access-verifier`) | Cloudflare Access team domain the verifier fetches its JWKS from (`https://<domain>/cdn-cgi/access/certs`) |
+| `CF_ACCESS_AUD` | none (required for `access-verifier`) | Expected `aud` claim on the Cloudflare Access JWT |
 
 The CLI exits 1 unless all of `EDGEKIT_STATE_DIR`, `EDGEKIT_DYNAMIC_DIR` and `EDGEKIT_POLICY` are set.
 
@@ -100,7 +102,7 @@ The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
 9. Existing files without the `# managed-by: edgekit` marker are never overwritten. `unregister` and `reconcile` only remove marked files.
 10. All state changes run under `flock`.
 11. `edgekit-security@file` is always the first middleware on every router.
-12. Private routes use `edgekit-access-jwt@file`, which forwards to `http://access-verifier:9000/verify`. This kit does not provide that verifier yet, so private routes fail closed until it exists.
+12. Private routes use `edgekit-access-jwt@file`, which forwards to `http://access-verifier:9000/verify`. The `access-verifier` service (`src/verifier/server.ts`) checks the `Cf-Access-Jwt-Assertion` header's signature (RS256, JWKS from `CF_ACCESS_TEAM_DOMAIN`, cached), `exp` and `aud`; a missing header, bad signature, expired token or wrong `aud` all return 401, so private routes fail closed.
 
 `dynamic/security.yml` applies `edgekit-security-ratelimit` to every route: average 20 requests per second, burst 60, keyed on the `Cf-Connecting-Ip` header. Requests without that header share one bucket.
 
@@ -134,6 +136,5 @@ The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
 
 ## Not done yet
 
-- Access JWT verifier service
 - Tunnel and DNS wiring in the CLI (`src/adapters/cloudflareDns.ts` and `src/adapters/cloudflareIngress.ts` exist but are not wired to `bin/edgectl`)
 - Cloudflare Access app automation
