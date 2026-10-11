@@ -109,7 +109,7 @@ test('1. merge keeps others and catch-all last', async () => {
     token: SECRET_TOKEN,
   });
 
-  const result = await adapter.addHost('new.example.com', 'http://10.0.0.3:8080');
+  const result = await adapter.addHost('new.example.com', 'http://10.0.0.3:8080', { dryRun: false });
   assert.equal(result.changed, true);
   assert.equal(putSeen, true);
 
@@ -161,7 +161,7 @@ test('2. same host twice = one rule (replaces existing rule, never duplicates)',
   });
 
   // Update alice with a new target service
-  const res = await adapter.addHost('alice.example.com', 'http://10.0.0.99:9090');
+  const res = await adapter.addHost('alice.example.com', 'http://10.0.0.99:9090', { dryRun: false });
   assert.equal(res.changed, true);
   assert.equal(putSeen, true);
 
@@ -191,7 +191,7 @@ test('3. GET 500 => throws and fake saw zero PUTs', async () => {
 
   await assert.rejects(
     async () => {
-      await adapter.addHost('test.example.com', 'http://10.0.0.1:8080');
+      await adapter.addHost('test.example.com', 'http://10.0.0.1:8080', { dryRun: false });
     },
     (err: Error) => {
       assert.match(err.message, /Failed to GET tunnel configuration: HTTP 500/);
@@ -234,7 +234,7 @@ test('4. missing catch-all => throws and fake saw zero PUTs', async () => {
 
   await assert.rejects(
     async () => {
-      await adapter.addHost('new.example.com', 'http://10.0.0.2:8080');
+      await adapter.addHost('new.example.com', 'http://10.0.0.2:8080', { dryRun: false });
     },
     (err: Error) => {
       assert.match(err.message, /missing catch-all rule/);
@@ -303,7 +303,7 @@ test('6. token never in error messages or diffs', async () => {
   });
 
   try {
-    await adapter.addHost('test.example.com', 'http://10.0.0.1:8080');
+    await adapter.addHost('test.example.com', 'http://10.0.0.1:8080', { dryRun: false });
     assert.fail('Expected exception');
   } catch (err: any) {
     assert.equal(err.message.includes(sensitiveToken), false);
@@ -318,7 +318,7 @@ test('6. token never in error messages or diffs', async () => {
   });
 
   try {
-    await dnsAdapter.ensureCname('test.example.com', 'target.cfargotunnel.com');
+    await dnsAdapter.ensureCname('test.example.com', 'target.cfargotunnel.com', { dryRun: false });
     assert.fail('Expected exception');
   } catch (err: any) {
     assert.equal(err.message.includes(sensitiveToken), false);
@@ -375,24 +375,30 @@ test('7. DNS ensureCname is idempotent (creates or updates, never duplicates)', 
   });
 
   // Case A: ensure existing record with same content does nothing (no PUT, no POST)
-  const res1 = await dnsAdapter.ensureCname('existing.example.com', 'tun1.cfargotunnel.com');
+  const res1 = await dnsAdapter.ensureCname('existing.example.com', 'tun1.cfargotunnel.com', { dryRun: false });
   assert.equal(res1.changed, false);
   assert.equal(postCalls.length, 0);
   assert.equal(putCalls.length, 0);
 
   // Case B: ensure existing record with changed target issues PUT (update, not duplicate POST)
-  const res2 = await dnsAdapter.ensureCname('existing.example.com', 'tun2.cfargotunnel.com');
+  const res2 = await dnsAdapter.ensureCname('existing.example.com', 'tun2.cfargotunnel.com', { dryRun: false });
   assert.equal(res2.changed, true);
   assert.equal(postCalls.length, 0);
   assert.equal(putCalls.length, 1);
   assert.equal(putCalls[0].content, 'tun2.cfargotunnel.com');
 
   // Case C: ensure new record issues POST
-  const res3 = await dnsAdapter.ensureCname('brand-new.example.com', 'tun3.cfargotunnel.com');
+  const res3 = await dnsAdapter.ensureCname('brand-new.example.com', 'tun3.cfargotunnel.com', { dryRun: false });
   assert.equal(res3.changed, true);
   assert.equal(postCalls.length, 1);
   assert.equal(postCalls[0].name, 'brand-new.example.com');
   assert.equal(postCalls[0].content, 'tun3.cfargotunnel.com');
+
+  // Case D: repeating the create finds the record just made and does nothing
+  const res4 = await dnsAdapter.ensureCname('brand-new.example.com', 'tun3.cfargotunnel.com', { dryRun: false });
+  assert.equal(res4.changed, false);
+  assert.equal(postCalls.length, 1);
+  assert.equal(putCalls.length, 1);
 });
 
 test('8. malformed GET (non-JSON, non-2xx, missing ingress) refuses and never PUTs', async () => {
@@ -415,7 +421,7 @@ test('8. malformed GET (non-JSON, non-2xx, missing ingress) refuses and never PU
 
   await assert.rejects(
     async () => {
-      await adapter1.addHost('test.example.com', 'http://10.0.0.1:8080');
+      await adapter1.addHost('test.example.com', 'http://10.0.0.1:8080', { dryRun: false });
     },
     /Failed to parse tunnel configuration/
   );
@@ -440,7 +446,7 @@ test('8. malformed GET (non-JSON, non-2xx, missing ingress) refuses and never PU
 
   await assert.rejects(
     async () => {
-      await adapter2.addHost('test.example.com', 'http://10.0.0.1:8080');
+      await adapter2.addHost('test.example.com', 'http://10.0.0.1:8080', { dryRun: false });
     },
     /missing ingress array/
   );
@@ -487,11 +493,130 @@ test('9. removeHost removes specific host and keeps catch-all last', async () =>
     token: SECRET_TOKEN,
   });
 
-  const res = await adapter.removeHost('alice.example.com');
+  const res = await adapter.removeHost('alice.example.com', { dryRun: false });
   assert.equal(res.changed, true);
   assert.equal(putSeen, true);
 
   assert.equal(finalIngress.length, 2);
   assert.deepEqual(finalIngress[0], { hostname: 'bob.example.com', service: 'http://10.0.0.2:8080' });
   assert.deepEqual(finalIngress[1], { service: 'http_status:404' });
+});
+
+test('10. same host added twice leaves one rule and the second call does not PUT', async () => {
+  let stored: any[] = [
+    { hostname: 'alice.example.com', service: 'http://10.0.0.1:8080' },
+    { service: 'http_status:404' },
+  ];
+  const putBodies: any[] = [];
+
+  const { fakeFetch } = createFakeFetch({
+    onCall: (call) => {
+      if (call.method === 'GET') {
+        return { status: 200, body: { result: { config: { ingress: stored } } } };
+      }
+      if (call.method === 'PUT') {
+        putBodies.push(call.body);
+        stored = call.body.config.ingress;
+        return { status: 200, body: { success: true } };
+      }
+      return { status: 404, body: {} };
+    },
+  });
+
+  const adapter = new CloudflareTunnelIngressAdapter({
+    fetch: fakeFetch as any,
+    accountId: ACCOUNT_ID,
+    tunnelId: TUNNEL_ID,
+    token: SECRET_TOKEN,
+  });
+
+  const first = await adapter.addHost('new.example.com', 'http://10.0.0.5:8080', { dryRun: false });
+  assert.equal(first.changed, true);
+  const second = await adapter.addHost('new.example.com', 'http://10.0.0.5:8080', { dryRun: false });
+  assert.equal(second.changed, false);
+  assert.equal(putBodies.length, 1);
+
+  assert.equal(stored.filter(r => r.hostname === 'new.example.com').length, 1);
+  assert.deepEqual(stored[stored.length - 1], { service: 'http_status:404' });
+});
+
+test('11. pre-existing duplicate rules for the host collapse to one, keeping position', async () => {
+  let finalIngress: any[] = [];
+  const initialIngress = [
+    { hostname: 'dup.example.com', service: 'http://10.0.0.1:8080' },
+    { hostname: 'other.example.com', service: 'http://10.0.0.2:8080' },
+    { hostname: 'dup.example.com', service: 'http://10.0.0.3:8080' },
+    { service: 'http_status:404' },
+  ];
+
+  const { fakeFetch } = createFakeFetch({
+    onCall: (call) => {
+      if (call.method === 'GET') {
+        return { status: 200, body: { result: { config: { ingress: initialIngress } } } };
+      }
+      if (call.method === 'PUT') {
+        finalIngress = call.body.config.ingress;
+        return { status: 200, body: { success: true } };
+      }
+      return { status: 404, body: {} };
+    },
+  });
+
+  const adapter = new CloudflareTunnelIngressAdapter({
+    fetch: fakeFetch as any,
+    accountId: ACCOUNT_ID,
+    tunnelId: TUNNEL_ID,
+    token: SECRET_TOKEN,
+  });
+
+  const res = await adapter.addHost('dup.example.com', 'http://10.0.0.9:9090', { dryRun: false });
+  assert.equal(res.changed, true);
+  assert.deepEqual(finalIngress, [
+    { hostname: 'dup.example.com', service: 'http://10.0.0.9:9090' },
+    { hostname: 'other.example.com', service: 'http://10.0.0.2:8080' },
+    { service: 'http_status:404' },
+  ]);
+});
+
+test('12. token never appears in success, dryRun or remove diffs', async () => {
+  const sensitiveToken = 'DIFF_LEAK_CHECK_TOKEN_QWERTY';
+
+  const { fakeFetch } = createFakeFetch({
+    onCall: (call) => {
+      if (call.method === 'GET') {
+        return {
+          status: 200,
+          body: {
+            result: {
+              config: {
+                ingress: [
+                  { hostname: 'a.example.com', service: 'http://10.0.0.1:8080' },
+                  { service: 'http_status:404' },
+                ],
+              },
+            },
+          },
+        };
+      }
+      return { status: 200, body: { success: true } };
+    },
+  });
+
+  const adapter = new CloudflareTunnelIngressAdapter({
+    fetch: fakeFetch as any,
+    accountId: ACCOUNT_ID,
+    tunnelId: TUNNEL_ID,
+    token: sensitiveToken,
+  });
+
+  const dry = await adapter.addHost('b.example.com', 'http://10.0.0.2:8080', { dryRun: true });
+  const live = await adapter.addHost('b.example.com', 'http://10.0.0.2:8080', { dryRun: false });
+  const removed = await adapter.removeHost('a.example.com', { dryRun: true });
+
+  assert.ok(dry.diff.length > 0);
+  assert.ok(live.diff.length > 0);
+  assert.ok(removed.diff.length > 0);
+  for (const diff of [dry.diff, live.diff, removed.diff]) {
+    assert.equal(diff.includes(sensitiveToken), false);
+  }
 });
