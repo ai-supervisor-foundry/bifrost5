@@ -1,20 +1,4 @@
-export interface DnsEnsureOpts {
-  dryRun: boolean;
-  proxied?: boolean;
-  ttl?: number;
-}
-
-export interface DnsPort {
-  ensureCname(
-    hostname: string,
-    target: string,
-    opts: DnsEnsureOpts
-  ): Promise<{ changed: boolean; recordId?: string; diff?: string }>;
-  removeCname(
-    hostname: string,
-    opts: { dryRun: boolean }
-  ): Promise<{ changed: boolean; diff?: string }>;
-}
+import type { DnsEnsureOpts, DnsPort } from '../domain/ports.ts';
 
 export interface DnsRecord {
   id: string;

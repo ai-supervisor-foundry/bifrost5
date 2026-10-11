@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
+import type { TunnelIngressOpts, TunnelIngressPort } from '../domain/ports.ts';
 
 export interface TunnelIngressRule {
   hostname?: string;
@@ -9,22 +10,6 @@ export interface TunnelIngressRule {
   path?: string;
   originRequest?: Record<string, unknown>;
   [key: string]: unknown;
-}
-
-export interface TunnelIngressOpts {
-  dryRun: boolean;
-}
-
-export interface TunnelIngressPort {
-  addHost(
-    hostname: string,
-    service: string,
-    opts: TunnelIngressOpts
-  ): Promise<{ changed: boolean; diff: string }>;
-  removeHost(
-    hostname: string,
-    opts: TunnelIngressOpts
-  ): Promise<{ changed: boolean; diff: string }>;
 }
 
 export interface CloudflareIngressConfig {
