@@ -6,15 +6,19 @@ export interface TunnelIngressRule {
   [key: string]: unknown;
 }
 
+export interface TunnelIngressOpts {
+  dryRun: boolean;
+}
+
 export interface TunnelIngressPort {
   addHost(
     hostname: string,
     service: string,
-    opts?: { dryRun?: boolean }
+    opts: TunnelIngressOpts
   ): Promise<{ changed: boolean; diff: string }>;
   removeHost(
     hostname: string,
-    opts?: { dryRun?: boolean }
+    opts: TunnelIngressOpts
   ): Promise<{ changed: boolean; diff: string }>;
 }
 
@@ -145,45 +149,35 @@ export class CloudflareTunnelIngressAdapter implements TunnelIngressPort {
   async addHost(
     hostname: string,
     service: string,
-    opts?: { dryRun?: boolean }
+    opts: TunnelIngressOpts
   ): Promise<{ changed: boolean; diff: string }> {
     try {
       const { fullBody, ingress } = await this.fetchCurrentConfig();
 
-      // Separate catch-all rule(s) and specific rules
       const catchAllIndex = ingress.findIndex(r => !r.hostname);
       const catchAllRule = ingress[catchAllIndex];
-
       const specificRules = ingress.filter((_, idx) => idx !== catchAllIndex);
 
-      // Check if rule for same hostname already exists
-      const existingRuleIndex = specificRules.findIndex(r => r.hostname === hostname);
-      let changed = false;
-
-      const newRule: TunnelIngressRule = { hostname, service };
-      const updatedSpecific = [...specificRules];
-
-      if (existingRuleIndex >= 0) {
-        const existing = updatedSpecific[existingRuleIndex];
-        if (existing.service !== service) {
-          updatedSpecific[existingRuleIndex] = { ...existing, service };
-          changed = true;
-        } else {
-          changed = false;
+      // The first rule for this hostname is replaced in place; any later duplicates are dropped
+      const updatedSpecific: TunnelIngressRule[] = [];
+      let placed = false;
+      for (const rule of specificRules) {
+        if (rule.hostname !== hostname) {
+          updatedSpecific.push(rule);
+        } else if (!placed) {
+          updatedSpecific.push({ ...rule, hostname, service });
+          placed = true;
         }
-      } else {
-        updatedSpecific.push(newRule);
-        changed = true;
+      }
+      if (!placed) {
+        updatedSpecific.push({ hostname, service });
       }
 
-      // Catch-all rule is ALWAYS last
       const newIngress = [...updatedSpecific, catchAllRule];
+      const changed = JSON.stringify(newIngress) !== JSON.stringify(ingress);
+      const diff = changed ? `--- current\n+++ updated\n${JSON.stringify(newIngress, null, 2)}` : '';
 
-      const oldJson = JSON.stringify(ingress, null, 2);
-      const newJson = JSON.stringify(newIngress, null, 2);
-      const diff = changed ? `--- current\n+++ updated\n${newJson}` : '';
-
-      if (opts?.dryRun || !changed) {
+      if (opts.dryRun || !changed) {
         return { changed, diff };
       }
 
@@ -197,7 +191,7 @@ export class CloudflareTunnelIngressAdapter implements TunnelIngressPort {
 
   async removeHost(
     hostname: string,
-    opts?: { dryRun?: boolean }
+    opts: TunnelIngressOpts
   ): Promise<{ changed: boolean; diff: string }> {
     try {
       const { fullBody, ingress } = await this.fetchCurrentConfig();
@@ -218,7 +212,7 @@ export class CloudflareTunnelIngressAdapter implements TunnelIngressPort {
       const newJson = JSON.stringify(newIngress, null, 2);
       const diff = `--- current\n+++ updated\n${newJson}`;
 
-      if (opts?.dryRun) {
+      if (opts.dryRun) {
         return { changed: true, diff };
       }
 

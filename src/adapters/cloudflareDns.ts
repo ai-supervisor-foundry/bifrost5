@@ -1,12 +1,18 @@
+export interface DnsEnsureOpts {
+  dryRun: boolean;
+  proxied?: boolean;
+  ttl?: number;
+}
+
 export interface DnsPort {
   ensureCname(
     hostname: string,
     target: string,
-    opts?: { dryRun?: boolean; proxied?: boolean; ttl?: number }
+    opts: DnsEnsureOpts
   ): Promise<{ changed: boolean; recordId?: string; diff?: string }>;
   removeCname(
     hostname: string,
-    opts?: { dryRun?: boolean }
+    opts: { dryRun: boolean }
   ): Promise<{ changed: boolean; diff?: string }>;
 }
 
@@ -113,25 +119,25 @@ export class CloudflareDnsAdapter implements DnsPort {
   async ensureCname(
     hostname: string,
     target: string,
-    opts?: { dryRun?: boolean; proxied?: boolean; ttl?: number }
+    opts: DnsEnsureOpts
   ): Promise<{ changed: boolean; recordId?: string; diff?: string }> {
     try {
       const records = await this.listCnameRecords(hostname);
-      const proxied = opts?.proxied ?? true;
-      const ttl = opts?.ttl ?? 1; // 1 = automatic in Cloudflare
+      const proxied = opts.proxied ?? true;
+      const ttl = opts.ttl ?? 1; // 1 = automatic in Cloudflare
 
       // Check if matching record exists
       const existing = records.find(r => r.name === hostname && r.type === 'CNAME');
 
       if (existing) {
-        if (existing.content === target && (existing.proxied === proxied || opts?.proxied === undefined)) {
+        if (existing.content === target && (existing.proxied === proxied || opts.proxied === undefined)) {
           // Idempotent: nothing to change
           return { changed: false, recordId: existing.id, diff: '' };
         }
 
         // Needs update
         const diff = `--- ${hostname} CNAME ${existing.content}\n+++ ${hostname} CNAME ${target}`;
-        if (opts?.dryRun) {
+        if (opts.dryRun) {
           return { changed: true, recordId: existing.id, diff };
         }
 
@@ -160,7 +166,7 @@ export class CloudflareDnsAdapter implements DnsPort {
 
       // Needs create
       const diff = `+ ${hostname} CNAME ${target}`;
-      if (opts?.dryRun) {
+      if (opts.dryRun) {
         return { changed: true, diff };
       }
 
@@ -202,7 +208,7 @@ export class CloudflareDnsAdapter implements DnsPort {
 
   async removeCname(
     hostname: string,
-    opts?: { dryRun?: boolean }
+    opts: { dryRun: boolean }
   ): Promise<{ changed: boolean; diff?: string }> {
     try {
       const records = await this.listCnameRecords(hostname);
@@ -213,7 +219,7 @@ export class CloudflareDnsAdapter implements DnsPort {
       }
 
       const diff = `- ${hostname} CNAME ${existing.content}`;
-      if (opts?.dryRun) {
+      if (opts.dryRun) {
         return { changed: true, diff };
       }
 
