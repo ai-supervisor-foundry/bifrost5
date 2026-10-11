@@ -1,11 +1,11 @@
 ---
-title: Edge Kit — standalone tunnel + router + route-registration product
+title: Bifrost5 Edge-kit — standalone tunnel + router + route-registration product
 status: PROPOSED 2026-10-10 (nothing built); Opus design review 2026-10-10: approve with changes (changes applied); VERIFY items resolved in task E0
 summary: Extract the Cloudflare tunnel + Traefik edge pattern into a standalone, reusable kit with a single "register a route" contract. First consumer is the Shell Box; Foundry's own edge is rebuilt on it later.
 created: 2026-10-10
 ---
 
-# Plan: Edge Kit
+# Plan: Bifrost5 Edge-kit
 
 Part of three plans (see [shell-box](../shell-box/README.md), [infra-validation-kit](../infra-validation-kit/README.md)).
 

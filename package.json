@@ -1,5 +1,6 @@
 {
   "name": "edge-kit",
+  "description": "Bifrost5 Edge-kit: Cloudflare tunnel and Traefik route registration",
   "private": true,
   "type": "module",
   "scripts": {

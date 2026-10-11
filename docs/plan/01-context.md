@@ -1,5 +1,5 @@
 ---
-title: Edge Kit — verified current state and coupling
+title: Bifrost5 Edge-kit — verified current state and coupling
 status: verified against repo 2026-10-10; corrected after Opus design review 2026-10-10
 ---
 

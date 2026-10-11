@@ -1,5 +1,5 @@
 ---
-title: Edge Kit — design
+title: Bifrost5 Edge-kit — design
 status: PROPOSED (review fixes applied 2026-10-10)
 ---
 
