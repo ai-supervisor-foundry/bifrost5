@@ -54,4 +54,11 @@ test('security.yml defines scanner-blocking router, blackhole service, and keeps
   assert.ok(middlewares, 'middlewares must exist');
   assert.ok(middlewares['edgekit-security'], 'edgekit-security middleware must still exist');
   assert.ok(middlewares['edgekit-access-jwt'], 'edgekit-access-jwt middleware must still exist');
+
+  // The security chain is exactly headers then rate limit, and each child exists as its own middleware
+  const chain = middlewares['edgekit-security'].chain?.middlewares;
+  assert.deepEqual(chain, ['edgekit-security-headers', 'edgekit-security-ratelimit'], 'edgekit-security chain must be exactly headers then ratelimit');
+  for (const child of chain) {
+    assert.ok(middlewares[child], `chain child ${child} must exist as a middleware`);
+  }
 });
