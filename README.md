@@ -118,9 +118,13 @@ The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
   bash tests/scripts/ops.test.sh
   bash tests/scripts/rotate-traefik-logs.test.sh
   ```
-- End-to-end definition-of-done scenario (no Docker). It runs in temp dirs with `EDGEKIT_ENABLED=1` and prints PASS or FAIL per step. It covers a successful register, refused owners and targets, the disabled exit code, unregister (including a second run), and reconcile removing an orphan file:
+- End-to-end definition-of-done scenario (Docker daemon required). It runs in temp dirs with `EDGEKIT_ENABLED=1` and prints PASS or FAIL per step. It covers a successful register, refused owners and targets, the disabled exit code, unregister (including a second run), reconcile removing an orphan file, and then a single throwaway-hostname flow: register a public route, confirm it is served through Traefik on `127.0.0.1:18080`, confirm a private route is refused without a token (the `edgekit-access-jwt@file` middleware fails closed with no Access verifier reachable), and unregister both routes. Everything runs against local temp dirs and throwaway Docker containers; by default it never contacts Cloudflare:
   ```bash
   ./scripts/e2e-local.sh
+  ```
+  Pass `--live` to additionally start the real `cloudflared` tunnel profile (`docker compose --profile tunnel up -d cloudflared`) against Cloudflare, proving the same throwaway route is reachable through your tunnel. This step is skipped (printed as a dry run) unless `--live` is given, and it requires `TUNNEL_TOKEN` to be set and a throwaway hostname already wired to that tunnel in your Cloudflare account — never point `--live` at a real/production hostname, and never run it in CI:
+  ```bash
+  TUNNEL_TOKEN=*** ./scripts/e2e-local.sh --live
   ```
 - Integration tests (Docker daemon required):
   ```bash
