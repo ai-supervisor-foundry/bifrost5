@@ -108,6 +108,21 @@ test('atomicWrite leaves no .tmp behind and temp files never end in .yml/.yaml/.
   }
 });
 
+test('atomicWrite removes its temp file when the rename fails', async () => {
+  const tmpDir = await createTempDir('ek-atomic-fail-');
+  try {
+    const targetDir = path.join(tmpDir, 'blocked');
+    await fs.mkdir(targetDir);
+
+    await assert.rejects(atomicWrite(targetDir, '{"x":1}'));
+
+    const files = await fs.readdir(tmpDir);
+    assert.deepEqual(files, ['blocked']);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('atomicWrite never exposes a partial file while concurrent reader loops', async () => {
   const tmpDir = await createTempDir('ek-concurrent-test-');
   try {

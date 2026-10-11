@@ -32,6 +32,20 @@ services:
     profiles:
       - tunnel
 
+  access-verifier:
+    image: node:24-alpine
+    working_dir: /app
+    command: ["node", "src/verifier/server.ts"]
+    environment:
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+    volumes:
+      - ./src:/app/src:ro
+      - ./package.json:/app/package.json:ro
+    networks:
+      - edgekit-net
+    restart: unless-stopped
+
 networks:
   edgekit-net:
     name: edgekit-net

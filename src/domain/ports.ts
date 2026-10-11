@@ -21,3 +21,75 @@ export interface QuotaStatePort {
 export interface Clock {
   now(): number;
 }
+
+export interface DnsEnsureOpts {
+  dryRun: boolean;
+  proxied?: boolean;
+  ttl?: number;
+}
+
+export interface DnsPort {
+  ensureCname(
+    hostname: string,
+    target: string,
+    opts: DnsEnsureOpts
+  ): Promise<{ changed: boolean; recordId?: string; diff?: string }>;
+  removeCname(
+    hostname: string,
+    opts: { dryRun: boolean }
+  ): Promise<{ changed: boolean; diff?: string }>;
+}
+
+export interface TunnelIngressOpts {
+  dryRun: boolean;
+}
+
+export interface TunnelIngressPort {
+  addHost(
+    hostname: string,
+    service: string,
+    opts: TunnelIngressOpts
+  ): Promise<{ changed: boolean; diff: string }>;
+  removeHost(
+    hostname: string,
+    opts: TunnelIngressOpts
+  ): Promise<{ changed: boolean; diff: string }>;
+}
+
+export interface AccessPolicyRule {
+  [key: string]: unknown;
+}
+
+export interface AccessPolicy {
+  decision: 'allow' | 'deny' | 'non_identity' | 'bypass';
+  include: AccessPolicyRule[];
+  exclude?: AccessPolicyRule[];
+  require?: AccessPolicyRule[];
+  [key: string]: unknown;
+}
+
+export interface AccessApp {
+  id: string;
+  name: string;
+  domain: string;
+  policies?: AccessPolicy[];
+  [key: string]: unknown;
+}
+
+export interface AccessEnsureOpts {
+  dryRun: boolean;
+}
+
+export interface AccessPort {
+  list(): Promise<AccessApp[]>;
+  ensure(
+    hostname: string,
+    name: string,
+    policy: AccessPolicy,
+    opts: AccessEnsureOpts
+  ): Promise<{ changed: boolean; appId?: string; diff?: string }>;
+  remove(
+    hostname: string,
+    opts: AccessEnsureOpts
+  ): Promise<{ changed: boolean; diff?: string }>;
+}

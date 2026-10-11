@@ -12,15 +12,20 @@ export async function atomicWrite(targetPath: string, contents: string): Promise
   const randomSuffix = crypto.randomBytes(8).toString('hex');
   const tempPath = path.join(dir, `.tmp-${Date.now()}-${randomSuffix}.tmp`);
 
-  const fileHandle = await fs.open(tempPath, 'w');
   try {
-    await fileHandle.writeFile(contents, 'utf8');
-    await fileHandle.sync();
-  } finally {
-    await fileHandle.close();
-  }
+    const fileHandle = await fs.open(tempPath, 'w');
+    try {
+      await fileHandle.writeFile(contents, 'utf8');
+      await fileHandle.sync();
+    } finally {
+      await fileHandle.close();
+    }
 
-  await fs.rename(tempPath, targetPath);
+    await fs.rename(tempPath, targetPath);
+  } catch (err: unknown) {
+    await fs.rm(tempPath, { force: true });
+    throw err;
+  }
 }
 
 export type OnCorruptCallback = (filePath: string, error: unknown) => void;

@@ -218,4 +218,21 @@ else
   pass
 fi
 
+echo "Test 16: retention keeps at most 5 archived files, pruning oldest first..."
+new_env t16
+OLDDIR="$LOGROOT/traefik/archive/2024-01-01"
+mkdir -p "$OLDDIR"
+for i in 1 2 3 4 5 6; do
+  : > "$OLDDIR/access-2024010${i}_000000.log.gz"
+done
+echo '{"msg":"newest"}' > "$ACCESS_LOG"
+FAKE_RUNNING=edgekit-traefik-1 run --force >/dev/null || fail "T16 exit non-zero"
+count="$(find "$LOGROOT/traefik/archive" -type f -name 'access-*.log*' | wc -l)"
+[ "$count" -eq 5 ] || fail "T16 expected exactly 5 archives kept after pruning, got $count"
+[ ! -e "$OLDDIR/access-20240101_000000.log.gz" ] || fail "T16 oldest archive not pruned"
+[ ! -e "$OLDDIR/access-20240102_000000.log.gz" ] || fail "T16 second-oldest archive not pruned"
+[ -e "$OLDDIR/access-20240106_000000.log.gz" ] || fail "T16 newer dummy archive wrongly pruned"
+[ -n "$(find "$LOGROOT/traefik/archive/$(date +%F)" -type f -name 'access-*.log*' 2>/dev/null)" ] || fail "T16 freshly rotated archive missing"
+pass
+
 echo "All rotate_traefik_logs tests passed (${PASSED} passed)."
