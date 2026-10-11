@@ -49,7 +49,7 @@ Optional keys: `denyIps`, `publicOwners`. Built-in reserved owners (`apps`, `adm
 | Cloudflare, Traefik renderer, file store | `src/adapters/` |
 | Access JWT verifier (`node:http` server, port 9000) | `src/verifier/` |
 | CLI entry (`bin/edgectl` runs `src/cli/main.ts` under `flock`) | `src/cli/` |
-| Traefik file-provider config, security middleware | `dynamic/` (`security.yml` is tracked; other `*.yml` are generated and gitignored) |
+| Traefik file-provider config, security middleware | `dynamic/` (`security.yml` and `probe-block.yml` are tracked; other `*.yml` are generated and gitignored) |
 | Tunnel + router stack | `compose.yml` |
 | Ops scripts (log rotation, audits, standalone check) | `scripts/` ([`scripts/AGENTS.md`](scripts/AGENTS.md)) |
 | Tests, layers, how to add one | `tests/` ([`tests/AGENTS.md`](tests/AGENTS.md)) |
