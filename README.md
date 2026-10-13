@@ -140,5 +140,7 @@ The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
 
 ## Not done yet
 
-- Tunnel and DNS wiring in the CLI (`src/adapters/cloudflareDns.ts` and `src/adapters/cloudflareIngress.ts` exist but are not wired to `bin/edgectl`)
-- Cloudflare Access app automation
+- `bin/edgectl` is not wired to the tunnel ingress, DNS and Access adapters (`src/adapters/cloudflareIngress.ts`, `src/adapters/cloudflareDns.ts` and `src/adapters/cloudflareAccess.ts` exist, with tests that mock the Cloudflare API only)
+- No read-only GET against the real Cloudflare API has been run
+- `./scripts/e2e-local.sh` refuses a private route with HTTP 500, not 401 or 403, because the throwaway Traefik container it starts cannot reach the Access verifier
+- Not proven end to end: a logged-in request through Cloudflare Access reaching a registered origin, and a valid Access token passing through the verifier
