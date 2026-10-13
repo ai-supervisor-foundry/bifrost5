@@ -1,7 +1,7 @@
 # AGENTS.md - edge-kit
 
 ## What this is
-edge-kit is a standalone Cloudflare Tunnel + Traefik kit. The CLI `edgectl` registers, unregisters, lists and reconciles HTTP routes. Each route is a generated Traefik file-provider YAML in a dynamic directory. Traefik serves them on `127.0.0.1:18080`. An optional `cloudflared` container forwards public traffic to Traefik.
+Bifrost5 edge-kit is a standalone Cloudflare Tunnel + Traefik kit. The CLI `edgectl` registers, unregisters, lists and reconciles HTTP routes. Each route is a generated Traefik file-provider YAML in a dynamic directory. Traefik serves them on `127.0.0.1:18080`. An optional `cloudflared` container forwards public traffic to Traefik.
 
 Full usage, env vars and policy details: [`README.md`](README.md). This file covers what you need to work in the repo.
 
