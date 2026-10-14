@@ -149,6 +149,11 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
   bash tests/scripts/ops.test.sh
   bash tests/scripts/rotate-traefik-logs.test.sh
   ```
+- Port and firewall check (no Docker required to run it, though it reports on published container ports when Docker is present):
+  ```bash
+  ./scripts/port-check.sh
+  ```
+  Lists listening TCP sockets (`ss -ltnH`) and published container ports (`docker ps --format`), and exits 1 if any kit port is bound to `0.0.0.0`, `[::]` or `*` (all interfaces). The kit ports default to `18080,18081` and can be overridden with `EDGEKIT_PORTS` (comma-separated). It also prints one advisory line on whether `ufw status` shows a `DENY` rule for those ports; `ufw` is advisory only, prints `ufw: unknown` when it needs root and is unreadable, and is never run with `sudo`. Output is capped at 10 lines. Tested by `tests/scripts/portCheck.test.ts` (run as part of `npm test`), which stubs `ss` on `PATH`.
 - End-to-end definition-of-done scenario (Docker daemon required). It runs in temp dirs with `EDGEKIT_ENABLED=1` and prints PASS or FAIL per step. It covers a successful register, refused owners and targets, the disabled exit code, unregister (including a second run), reconcile removing an orphan file, and then a single throwaway-hostname flow: register a public route, confirm it is served through Traefik on `127.0.0.1:18080`, confirm a private route is refused without a token (the `edgekit-access-jwt@file` middleware fails closed with no Access verifier reachable), and unregister both routes. Everything runs against local temp dirs and throwaway Docker containers; by default it never contacts Cloudflare:
   ```bash
   ./scripts/e2e-local.sh
