@@ -137,6 +137,23 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
 
 `dynamic/security.yml` applies `edgekit-security-ratelimit` to every route: average 20 requests per second, burst 60, keyed on the `Cf-Connecting-Ip` header. Requests without that header share one bucket.
 
+## Hardening checklist
+
+Each control is enforced by one file. `tests/compose/hardening.test.ts` parses every file in this table and asserts the fact next to it, so a control and the file that enforces it cannot drift apart silently.
+
+| Control | Enforced by |
+|---------|-------------|
+| Traefik's HTTP entrypoint is published on `127.0.0.1` only, never `0.0.0.0` or all interfaces | `compose.yml` |
+| No service mounts the Docker socket | `compose.yml` |
+| Security headers (HSTS, `X-Frame-Options: SAMEORIGIN`, nosniff, no `server` header, ...) and the rate limit (20 req/s average, burst 60, keyed on `Cf-Connecting-Ip`) apply to every route | `dynamic/security.yml` |
+| Known scanner paths (`/.env`, `/.git`, `/wp-admin`, `/wp-login.php`, `/phpunit`, `/actuator`, ...) are blackholed by a priority-1000 router before reaching any real backend | `dynamic/probe-block.yml` |
+| Any request that matches no registered route or other router gets a branded JSON 404 (not Traefik's bare one) from a priority-1 catch-all router | `dynamic/notfound.yml`, `notfound/default.conf` |
+| Reserved owners (`DEFAULT_RESERVED_OWNERS`, including `apps`, `admin`, `api`, `control`, `connect`) are refused, and `--access public` is refused unless the owner is in `policy.publicOwners` | `src/domain/routeSpec.ts` |
+| Targets must be an `http://<IPv4 literal>:<port>` address inside the owner's CIDR; DNS names, IPv6, loopback, link-local and `0.0.0.0/8` are refused | `src/domain/routeSpec.ts` |
+| `CF_API_TOKEN` is read from the environment only — never a `--token` flag, never printed, redacted on error — and so never lands on disk | `src/cli/main.ts` |
+| Private routes fail closed: a missing `Cf-Access-Jwt-Assertion` header, bad signature, expired token or wrong `aud` all return 401 | `src/verifier/server.ts` |
+| Traefik's access log is JSON (`compose.yml`) and is rotated by age, signalled with `USR1`, compressed, and pruned to the newest 5 archives | `scripts/rotate_traefik_logs.sh` |
+
 ## Running tests
 
 - Unit tests (no Docker):
@@ -156,6 +173,11 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
   ./scripts/port-check.sh
   ```
   Lists listening TCP sockets (`ss -ltnH`) and published container ports (`docker ps --format`), and exits 1 if any kit port is bound to `0.0.0.0`, `[::]` or `*` (all interfaces). The kit ports default to `18080,18081` and can be overridden with `EDGEKIT_PORTS` (comma-separated). It also prints one advisory line on whether `ufw status` shows a `DENY` rule for those ports; `ufw` is advisory only, prints `ufw: unknown` when it needs root and is unreadable, and is never run with `sudo`. Output is capped at 10 lines. Tested by `tests/scripts/portCheck.test.ts` (run as part of `npm test`), which stubs `ss` on `PATH`.
+- Outside-in port scan (`nmap` required). Only meaningful when run from a network outside the host's LAN — a different ISP connection, a cloud VM, mobile data, etc. — since a scan from inside the same LAN is shaped by that LAN's own NAT/firewall and proves nothing about what the public internet can reach:
+  ```bash
+  ./scripts/outside-in.sh <host-or-ip> [allowed-ports]
+  ```
+  Runs `nmap -Pn -p- --min-rate 1000` against the target and exits 1 if any open port is outside the allowed list (comma-separated, default `443`). Exits 2 if `nmap` is missing or the target argument is missing. Output is capped at 10 lines. Tested by `tests/scripts/outsideIn.test.ts` (run as part of `npm test`), which stubs `nmap` on `PATH`.
 - End-to-end definition-of-done scenario (Docker daemon required). It runs in temp dirs with `EDGEKIT_ENABLED=1` and prints PASS or FAIL per step. It covers a successful register, refused owners and targets, the disabled exit code, unregister (including a second run), reconcile removing an orphan file, and then a single throwaway-hostname flow: register a public route, confirm it is served through Traefik on `127.0.0.1:18080`, confirm a private route is refused without a token (the `edgekit-access-jwt@file` middleware fails closed with no Access verifier reachable), and unregister both routes. Everything runs against local temp dirs and throwaway Docker containers; by default it never contacts Cloudflare:
   ```bash
   ./scripts/e2e-local.sh
