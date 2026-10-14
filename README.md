@@ -26,7 +26,7 @@ edge-kit publishes HTTP routes through Traefik's file provider, optionally behin
 | `EDGEKIT_REOPEN_TIMEOUT` | `10` | Seconds to wait for `access.log` to reappear after rotation |
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never printed or logged. Keep files that hold it at mode 600 |
 | `CF_ACCESS_TEAM_DOMAIN` | none (required for `access-verifier`) | Cloudflare Access team domain the verifier fetches its JWKS from (`https://<domain>/cdn-cgi/access/certs`) |
-| `CF_ACCESS_AUD` | none (required for `access-verifier`) | Expected `aud` claim on the Cloudflare Access JWT |
+| `CF_ACCESS_AUD` | none (required for `access-verifier`) | Expected `aud` claim on the Cloudflare Access JWT (comma-separated list accepted) |
 | `CF_API_TOKEN` | none (required for `edge ingress`\|`dns`\|`access`) | Cloudflare API token used to read and, with `--apply`, write tunnel ingress, DNS and Access config. Read from the environment only: never printed, logged or accepted as a flag |
 | `CF_ACCOUNT_ID` | none (required for `edge ingress` and `edge access`) | Cloudflare account ID |
 | `CF_TUNNEL_ID` | none (required for `edge ingress`) | Cloudflare tunnel ID whose ingress config is read/updated |
