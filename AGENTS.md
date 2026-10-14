@@ -81,7 +81,7 @@ Mutations with the switch off exit with code 3. `edgectl` refuses to run without
 | `EDGEKIT_REOPEN_TIMEOUT` | `10` | Seconds to wait for `access.log` to reappear after rotation |
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never print or log it. Keep secret files at mode 600 |
 | `CF_ACCESS_TEAM_DOMAIN` | none | Required by `access-verifier`: Cloudflare Access team domain for JWKS (`https://<domain>/cdn-cgi/access/certs`) |
-| `CF_ACCESS_AUD` | none | Required by `access-verifier`: expected `aud` claim on the Access JWT |
+| `CF_ACCESS_AUD` | none | Required by `access-verifier`: expected `aud` claim on the Access JWT (comma-separated list accepted) |
 | `CF_API_TOKEN` | none | Required by `edge ingress\|dns\|access`: Cloudflare API token. Env only, never a flag, never printed |
 | `CF_ACCOUNT_ID` | none | Required by `edge ingress` and `edge access` |
 | `CF_TUNNEL_ID` | none | Required by `edge ingress` |

@@ -228,15 +228,36 @@ async function main() {
   try {
     switch (command) {
       case 'register': {
+        const isSite = flags['site'] === true;
         const owner = typeof flags['owner'] === 'string' ? flags['owner'] : undefined;
         const name = typeof flags['name'] === 'string' ? flags['name'] : undefined;
         const host = typeof flags['host'] === 'string' ? flags['host'] : undefined;
         const target = typeof flags['target'] === 'string' ? flags['target'] : undefined;
         const access = typeof flags['access'] === 'string' ? flags['access'] : undefined;
-        const stripPrefix = flags['strip'] === false ? false : true;
+        const pathPrefixFlag = typeof flags['path-prefix'] === 'string' ? flags['path-prefix'] : undefined;
+        const redirectExactFrom = typeof flags['redirect-exact-from'] === 'string' ? flags['redirect-exact-from'] : undefined;
+        const redirectTo = typeof flags['redirect-to'] === 'string' ? flags['redirect-to'] : undefined;
+
+        // Simplest option: strip prefix defaults to false for site routes (--strip to enable),
+        // and true for /p routes (--no-strip to disable).
+        const stripPrefix = isSite ? flags['strip'] === true : flags['strip'] !== false;
 
         if (!owner || !name || !host || !target) {
           process.stderr.write('register requires --owner, --name, --host, and --target\n');
+          process.exit(2);
+        }
+
+        if (isSite && !pathPrefixFlag) {
+          process.stderr.write('register --site requires --path-prefix\n');
+          process.exit(2);
+        }
+
+        if (redirectExactFrom !== undefined && redirectTo === undefined) {
+          process.stderr.write('register --redirect-exact-from requires --redirect-to\n');
+          process.exit(2);
+        }
+        if (redirectTo !== undefined && redirectExactFrom === undefined) {
+          process.stderr.write('register --redirect-to requires --redirect-exact-from\n');
           process.exit(2);
         }
 
@@ -248,6 +269,19 @@ async function main() {
           target,
           stripPrefix,
         };
+        if (isSite) {
+          specInput.kind = 'site';
+          specInput.pathPrefix = pathPrefixFlag;
+          if (redirectExactFrom !== undefined) {
+            specInput.redirectExactFrom = redirectExactFrom;
+          }
+          if (redirectTo !== undefined) {
+            specInput.redirectTo = redirectTo;
+          }
+        } else if (pathPrefixFlag !== undefined) {
+          specInput.pathPrefix = pathPrefixFlag;
+        }
+
         if (access !== undefined) {
           specInput.access = access;
         }

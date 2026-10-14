@@ -117,9 +117,17 @@ function parseJwt(token: string): ParsedJwt | null {
 }
 
 export interface VerifyOptions {
-  aud: string;
+  aud: string | string[];
   jwks: JwksCache;
   now?: () => number;
+}
+
+export function parseAudiences(aud?: string | string[]): string[] {
+  if (!aud) {
+    return [];
+  }
+  const rawList = Array.isArray(aud) ? aud : aud.split(',');
+  return rawList.map((entry) => entry.trim()).filter((entry) => entry.length > 0);
 }
 
 export async function verifyAccessJwt(token: string, opts: VerifyOptions): Promise<boolean> {
@@ -160,8 +168,19 @@ export async function verifyAccessJwt(token: string, opts: VerifyOptions): Promi
     return false;
   }
 
-  const auds = Array.isArray(payload.aud) ? payload.aud : payload.aud ? [payload.aud] : [];
-  if (!auds.includes(opts.aud)) {
+  const configuredAudiences = parseAudiences(opts.aud);
+  if (configuredAudiences.length === 0) {
+    return false;
+  }
+
+  const tokenAudiences = Array.isArray(payload.aud)
+    ? payload.aud.map(String)
+    : typeof payload.aud === 'string'
+    ? [payload.aud]
+    : [];
+
+  const hasMatchingAud = configuredAudiences.some((configuredAud) => tokenAudiences.includes(configuredAud));
+  if (!hasMatchingAud) {
     return false;
   }
 
@@ -170,13 +189,18 @@ export async function verifyAccessJwt(token: string, opts: VerifyOptions): Promi
 
 export interface CreateVerifierServerOptions {
   teamDomain: string;
-  aud: string;
+  aud: string | string[];
   jwksFetcher?: JwksFetcher;
   jwksTtlMs?: number;
   now?: () => number;
 }
 
 export function createVerifierServer(opts: CreateVerifierServerOptions): http.Server {
+  const configuredAudiences = parseAudiences(opts.aud);
+  if (configuredAudiences.length === 0) {
+    throw new Error('CF_ACCESS_AUD must contain at least one valid audience');
+  }
+
   const jwks = new JwksCache({
     fetcher: opts.jwksFetcher ?? defaultJwksFetcher,
     teamDomain: opts.teamDomain,
@@ -185,7 +209,7 @@ export function createVerifierServer(opts: CreateVerifierServerOptions): http.Se
   });
 
   return http.createServer((req, res) => {
-    handleRequest(req, res, { aud: opts.aud, jwks, now: opts.now }).catch(() => {
+    handleRequest(req, res, { aud: configuredAudiences, jwks, now: opts.now }).catch(() => {
       if (!res.headersSent) {
         res.writeHead(401);
       }
@@ -197,7 +221,7 @@ export function createVerifierServer(opts: CreateVerifierServerOptions): http.Se
 async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  opts: { aud: string; jwks: JwksCache; now?: () => number }
+  opts: { aud: string | string[]; jwks: JwksCache; now?: () => number }
 ): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (req.method !== 'GET' || url.pathname !== '/verify') {
@@ -225,12 +249,13 @@ function isMainModule(): boolean {
 if (isMainModule()) {
   const teamDomain = process.env.CF_ACCESS_TEAM_DOMAIN;
   const aud = process.env.CF_ACCESS_AUD;
-  if (!teamDomain || !aud) {
+  const configuredAudiences = parseAudiences(aud);
+  if (!teamDomain || configuredAudiences.length === 0) {
     process.stderr.write('CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD must both be set\n');
     process.exit(1);
   }
 
-  const server = createVerifierServer({ teamDomain, aud });
+  const server = createVerifierServer({ teamDomain, aud: configuredAudiences });
   server.listen(9000, () => {
     process.stdout.write('access-verifier listening on :9000\n');
   });
