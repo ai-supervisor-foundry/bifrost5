@@ -27,8 +27,12 @@ edge-kit publishes HTTP routes through Traefik's file provider, optionally behin
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never printed or logged. Keep files that hold it at mode 600 |
 | `CF_ACCESS_TEAM_DOMAIN` | none (required for `access-verifier`) | Cloudflare Access team domain the verifier fetches its JWKS from (`https://<domain>/cdn-cgi/access/certs`) |
 | `CF_ACCESS_AUD` | none (required for `access-verifier`) | Expected `aud` claim on the Cloudflare Access JWT |
+| `CF_API_TOKEN` | none (required for `edge ingress`\|`dns`\|`access`) | Cloudflare API token used to read and, with `--apply`, write tunnel ingress, DNS and Access config. Read from the environment only: never printed, logged or accepted as a flag |
+| `CF_ACCOUNT_ID` | none (required for `edge ingress` and `edge access`) | Cloudflare account ID |
+| `CF_TUNNEL_ID` | none (required for `edge ingress`) | Cloudflare tunnel ID whose ingress config is read/updated |
+| `CF_ZONE_ID` | none (required for `edge dns`) | Cloudflare zone ID the DNS record lives in |
 
-The CLI exits 1 unless all of `EDGEKIT_STATE_DIR`, `EDGEKIT_DYNAMIC_DIR` and `EDGEKIT_POLICY` are set.
+The CLI exits 1 unless all of `EDGEKIT_STATE_DIR`, `EDGEKIT_DYNAMIC_DIR` and `EDGEKIT_POLICY` are set, except for the `edge` commands below, which only touch Cloudflare account resources and need none of those three (the `bin/edgectl` wrapper still requires `EDGEKIT_STATE_DIR` to build its lock file path).
 
 ## Run the stack
 
@@ -65,6 +69,31 @@ bin/edgectl unregister alice--blog
 Exit codes: `0` success, `2` validation or usage error (including the per-owner cap and the registration rate limit), `3` mutation while disabled, `1` other failure.
 
 The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
+
+## Cloudflare edge commands
+
+`bin/edgectl edge <ingress|dns|access> <hostname> ...` talk directly to the Cloudflare API (tunnel ingress, DNS and Access apps). They are dry-run by default: they always print the diff they would apply and exit 0, and never call a mutating Cloudflare API method unless `--apply` is given. `CF_API_TOKEN` is read from the environment only — it is never accepted as a flag, never printed and never written to disk; adapter errors redact it too. These commands do not touch `EDGEKIT_STATE_DIR`, `EDGEKIT_DYNAMIC_DIR`, `EDGEKIT_POLICY` or `EDGEKIT_ENABLED`.
+
+| Command | Does | Required env |
+|---------|------|---------------|
+| `edge ingress <hostname> --service <svc> [--apply]` | Ensures `<hostname>` routes to `<svc>` in the tunnel's ingress config | `CF_API_TOKEN`, `CF_ACCOUNT_ID`, `CF_TUNNEL_ID` |
+| `edge dns <hostname> --target <target> [--proxied true\|false] [--ttl <n>] [--apply]` | Ensures a CNAME record for `<hostname>` pointing at `<target>` | `CF_API_TOKEN`, `CF_ZONE_ID` |
+| `edge access <hostname> --name <name> --policy <json> [--apply]` | Ensures a Cloudflare Access app for `<hostname>` with the given policy | `CF_API_TOKEN`, `CF_ACCOUNT_ID` |
+
+```bash
+export CF_API_TOKEN=***            # never printed; required for all edge commands
+export CF_ACCOUNT_ID=acc_123
+export CF_TUNNEL_ID=tun_456
+export CF_ZONE_ID=zone_789
+
+bin/edgectl edge ingress app.example.com --service http://10.20.0.5:3000   # prints the diff, exits 0, no mutation
+bin/edgectl edge ingress app.example.com --service http://10.20.0.5:3000 --apply   # applies it
+
+bin/edgectl edge dns app.example.com --target tunnel-id.cfargotunnel.com
+bin/edgectl edge access app.example.com --name app-access --policy '{"decision":"allow","include":[{"email_domain":{"domain":"example.com"}}]}'
+```
+
+Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcommand) prints a clear error naming the missing variable and exits 1; it never prints the variable's value. A missing hostname or required flag (`--service`, `--target`, `--name`/`--policy`) exits 2.
 
 ## Policy JSON example
 
@@ -120,6 +149,11 @@ The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
   bash tests/scripts/ops.test.sh
   bash tests/scripts/rotate-traefik-logs.test.sh
   ```
+- Port and firewall check (no Docker required to run it, though it reports on published container ports when Docker is present):
+  ```bash
+  ./scripts/port-check.sh
+  ```
+  Lists listening TCP sockets (`ss -ltnH`) and published container ports (`docker ps --format`), and exits 1 if any kit port is bound to `0.0.0.0`, `[::]` or `*` (all interfaces). The kit ports default to `18080,18081` and can be overridden with `EDGEKIT_PORTS` (comma-separated). It also prints one advisory line on whether `ufw status` shows a `DENY` rule for those ports; `ufw` is advisory only, prints `ufw: unknown` when it needs root and is unreadable, and is never run with `sudo`. Output is capped at 10 lines. Tested by `tests/scripts/portCheck.test.ts` (run as part of `npm test`), which stubs `ss` on `PATH`.
 - End-to-end definition-of-done scenario (Docker daemon required). It runs in temp dirs with `EDGEKIT_ENABLED=1` and prints PASS or FAIL per step. It covers a successful register, refused owners and targets, the disabled exit code, unregister (including a second run), reconcile removing an orphan file, and then a single throwaway-hostname flow: register a public route, confirm it is served through Traefik on `127.0.0.1:18080`, confirm a private route is refused without a token (the `edgekit-access-jwt@file` middleware fails closed with no Access verifier reachable), and unregister both routes. Everything runs against local temp dirs and throwaway Docker containers; by default it never contacts Cloudflare:
   ```bash
   ./scripts/e2e-local.sh
@@ -140,7 +174,6 @@ The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
 
 ## Not done yet
 
-- `bin/edgectl` is not wired to the tunnel ingress, DNS and Access adapters (`src/adapters/cloudflareIngress.ts`, `src/adapters/cloudflareDns.ts` and `src/adapters/cloudflareAccess.ts` exist, with tests that mock the Cloudflare API only)
 - No read-only GET against the real Cloudflare API has been run
 - `./scripts/e2e-local.sh` refuses a private route with HTTP 500, not 401 or 403, because the throwaway Traefik container it starts cannot reach the Access verifier
 - Not proven end to end: a logged-in request through Cloudflare Access reaching a registered origin, and a valid Access token passing through the verifier

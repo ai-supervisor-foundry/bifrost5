@@ -9,6 +9,7 @@ Check here before inventing a command.
 | `rotate_logs.sh <dir> [max_bytes] [keep]` | Copytruncate log rotation, stays inside `<dir>` | tested only (`tests/scripts/ops.test.sh`); generic size-based tool |
 | `rotate_traefik_logs.sh [--force]` | Age-based Traefik access log rotation (default 5 days, `EDGEKIT_ROTATE_DAYS`): move to `archive/<date>/`, USR1 to the container (`EDGEKIT_TRAEFIK_CONTAINER`, default `edgekit-traefik-1`), xz -9e or gzip -9, then prune to the newest 5 archived files. Log root: `EDGEKIT_LOG_DIR` (default `<repo>/logs`) | tested (`tests/scripts/rotate-traefik-logs.test.sh`) |
 | `e2e-local.sh` | End-to-end definition-of-done proof in temp dirs | yes |
+| `port-check.sh` | Lists listening TCP sockets (`ss -ltnH`) and published container ports (`docker ps --format`); exits 1 if any kit port (`EDGEKIT_PORTS`, default `18080,18081`) is bound to `0.0.0.0`, `[::]` or `*`. Advisory `ufw status` DENY check (prints `ufw: unknown` if it needs root; never calls sudo). Prints at most 10 lines | tested (`tests/scripts/portCheck.test.ts`, via `npm test`) |
 
 Tests for these live in `tests/scripts/`. Changing a script: update its test and this table.
 

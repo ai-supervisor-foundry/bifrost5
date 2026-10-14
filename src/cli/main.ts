@@ -6,7 +6,11 @@ import { FileRouteStore } from '../adapters/fileStore.ts';
 import { TraefikFileRenderer } from '../adapters/traefikRenderer.ts';
 import { FileQuotaState } from '../adapters/fileQuotaState.ts';
 import { deriveId, isValidId, type Policy } from '../domain/routeSpec.ts';
-import type { Clock } from '../domain/ports.ts';
+import type { AccessPolicy, Clock } from '../domain/ports.ts';
+import { CloudflareTunnelIngressAdapter } from '../adapters/cloudflareIngress.ts';
+import { CloudflareDnsAdapter } from '../adapters/cloudflareDns.ts';
+import { CloudflareAccessAdapter } from '../adapters/cloudflareAccess.ts';
+import { runEdgeAccess, runEdgeDns, runEdgeIngress } from './edgeCommands.ts';
 
 class RealClock implements Clock {
   now(): number {
@@ -15,11 +19,16 @@ class RealClock implements Clock {
 }
 
 function parseArgs(args: string[]): { command: string; flags: Record<string, string | boolean>; positionals: string[] } {
-  const command = args[0] || '';
+  let command = args[0] || '';
+  let startIdx = 1;
+  if (command === 'edge' && typeof args[1] === 'string' && !args[1].startsWith('--')) {
+    command = `edge ${args[1]}`;
+    startIdx = 2;
+  }
   const flags: Record<string, string | boolean> = {};
   const positionals: string[] = [];
 
-  let i = 1;
+  let i = startIdx;
   while (i < args.length) {
     const arg = args[i];
     if (arg === '--no-strip') {
@@ -44,9 +53,136 @@ function parseArgs(args: string[]): { command: string; flags: Record<string, str
   return { command, flags, positionals };
 }
 
+function parseBoolFlag(value: string | boolean | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'boolean') return value;
+  return value !== 'false';
+}
+
+/**
+ * The edge/* commands operate on Cloudflare account resources (tunnel ingress,
+ * DNS, Access), not the local route store, so they bypass EDGEKIT_STATE_DIR /
+ * EDGEKIT_DYNAMIC_DIR / EDGEKIT_POLICY and EDGEKIT_ENABLED entirely. The only
+ * gate they respect is --apply; CF_API_TOKEN is read from the environment and
+ * never echoed back on any path, including errors (adapters redact it).
+ */
+async function runEdgeCli(
+  command: string,
+  flags: Record<string, string | boolean>,
+  positionals: string[]
+): Promise<void> {
+  const subcommand = command.slice('edge '.length);
+  const hostname = positionals[0];
+  const apply = flags['apply'] === true;
+
+  if (!hostname) {
+    process.stderr.write(`edge ${subcommand} requires a hostname\n`);
+    process.exit(2);
+  }
+
+  if (!['ingress', 'dns', 'access'].includes(subcommand)) {
+    process.stderr.write(`Unknown edge subcommand: ${subcommand}\n`);
+    process.exit(1);
+  }
+
+  const token = process.env.CF_API_TOKEN;
+  if (!token) {
+    process.stderr.write('CF_API_TOKEN environment variable is required\n');
+    process.exit(1);
+  }
+
+  try {
+    switch (subcommand) {
+      case 'ingress': {
+        const service = typeof flags['service'] === 'string' ? flags['service'] : undefined;
+        if (!service) {
+          process.stderr.write('edge ingress requires --service\n');
+          process.exit(2);
+        }
+        const accountId = process.env.CF_ACCOUNT_ID;
+        const tunnelId = process.env.CF_TUNNEL_ID;
+        if (!accountId || !tunnelId) {
+          process.stderr.write('CF_ACCOUNT_ID and CF_TUNNEL_ID environment variables are required\n');
+          process.exit(1);
+        }
+
+        const adapter = new CloudflareTunnelIngressAdapter({ fetch, accountId, tunnelId, token });
+        const result = await runEdgeIngress(adapter, hostname, service, apply);
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+        process.exit(0);
+        break;
+      }
+
+      case 'dns': {
+        const target = typeof flags['target'] === 'string' ? flags['target'] : undefined;
+        if (!target) {
+          process.stderr.write('edge dns requires --target\n');
+          process.exit(2);
+        }
+        const zoneId = process.env.CF_ZONE_ID;
+        if (!zoneId) {
+          process.stderr.write('CF_ZONE_ID environment variable is required\n');
+          process.exit(1);
+        }
+
+        const proxied = parseBoolFlag(flags['proxied']);
+        const ttl = typeof flags['ttl'] === 'string' ? Number(flags['ttl']) : undefined;
+
+        const adapter = new CloudflareDnsAdapter({ fetch, zoneId, token });
+        const result = await runEdgeDns(adapter, hostname, target, apply, { proxied, ttl });
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+        process.exit(0);
+        break;
+      }
+
+      case 'access': {
+        const name = typeof flags['name'] === 'string' ? flags['name'] : undefined;
+        const policyRaw = typeof flags['policy'] === 'string' ? flags['policy'] : undefined;
+        if (!name || !policyRaw) {
+          process.stderr.write('edge access requires --name and --policy\n');
+          process.exit(2);
+        }
+
+        let policy: AccessPolicy;
+        try {
+          policy = JSON.parse(policyRaw);
+        } catch {
+          process.stderr.write('edge access --policy must be valid JSON\n');
+          process.exit(2);
+        }
+        if (typeof policy.decision !== 'string' || !Array.isArray(policy.include)) {
+          process.stderr.write('edge access --policy must include a decision and an include array\n');
+          process.exit(2);
+        }
+
+        const accountId = process.env.CF_ACCOUNT_ID;
+        if (!accountId) {
+          process.stderr.write('CF_ACCOUNT_ID environment variable is required\n');
+          process.exit(1);
+        }
+
+        const adapter = new CloudflareAccessAdapter({ fetch, accountId, token });
+        const result = await runEdgeAccess(adapter, hostname, name, policy, apply);
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+        process.exit(0);
+        break;
+      }
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`${msg}\n`);
+    process.exit(1);
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const { command, flags, positionals } = parseArgs(args);
+
+  if (command.startsWith('edge ')) {
+    await runEdgeCli(command, flags, positionals);
+    return;
+  }
 
   const stateDir = process.env.EDGEKIT_STATE_DIR;
   const dynamicDir = process.env.EDGEKIT_DYNAMIC_DIR;
