@@ -55,6 +55,7 @@ function runEdgectl(
 const SAMPLE_POLICY = {
   reservedOwners: ['foundry*', 'apps', 'admin', 'api', 'control', 'connect'],
   allowedHosts: ['sites.example.com', 'test.example.com'],
+  siteHosts: ['portal.example.com'],
   ownerCidrs: {
     alice: ['10.20.0.0/16'],
     bob: ['10.30.0.0/16'],
@@ -564,3 +565,276 @@ test('8 parallel registers of distinct names all succeed, every .yml parses as Y
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('cli register site route ok, verify rule, unregister', async () => {
+  const tmpDir = await createTempDir('edgectl-test-site-reg-');
+  const stateDir = path.join(tmpDir, 'state');
+  const dynamicDir = path.join(tmpDir, 'dynamic');
+  const policyFile = path.join(tmpDir, 'policy.json');
+
+  try {
+    await fs.mkdir(dynamicDir, { recursive: true });
+    await fs.writeFile(policyFile, JSON.stringify(SAMPLE_POLICY, null, 2));
+
+    const res = await runEdgectl(
+      [
+        'register',
+        '--site',
+        '--owner',
+        'alice',
+        '--name',
+        'portal',
+        '--host',
+        'portal.example.com',
+        '--path-prefix',
+        '/portal',
+        '--target',
+        'http://10.20.0.5:3000',
+      ],
+      {
+        EDGEKIT_STATE_DIR: stateDir,
+        EDGEKIT_DYNAMIC_DIR: dynamicDir,
+        EDGEKIT_POLICY: policyFile,
+        EDGEKIT_ENABLED: '1',
+      }
+    );
+
+    assert.equal(res.code, 0, `Expected exit 0, got ${res.code}. stderr: ${res.stderr}`);
+
+    // Verify desired JSON
+    const desiredPath = path.join(stateDir, 'desired', 'alice', 'alice--portal.json');
+    const desiredRaw = await fs.readFile(desiredPath, 'utf8');
+    const desiredJson = JSON.parse(desiredRaw);
+    assert.equal(desiredJson.id, 'alice--portal');
+    assert.equal(desiredJson.kind, 'site');
+    assert.equal(desiredJson.pathPrefix, '/portal');
+    assert.equal(desiredJson.stripPrefix, false);
+
+    // Verify YAML
+    const ymlPath = path.join(dynamicDir, 'alice--portal.yml');
+    const ymlRaw = await fs.readFile(ymlPath, 'utf8');
+    const parsedYml = parseYaml(ymlRaw);
+    assert.ok(parsedYml.http.routers['alice--portal']);
+    assert.equal(parsedYml.http.routers['alice--portal'].rule, 'Host(`portal.example.com`) && PathPrefix(`/portal`)');
+
+    // List command
+    const listRes = await runEdgectl(['list'], {
+      EDGEKIT_STATE_DIR: stateDir,
+      EDGEKIT_DYNAMIC_DIR: dynamicDir,
+      EDGEKIT_POLICY: policyFile,
+    });
+    assert.equal(listRes.code, 0);
+    const routes = JSON.parse(listRes.stdout);
+    assert.equal(routes.length, 1);
+    assert.equal(routes[0].id, 'alice--portal');
+
+    // Unregister command
+    const unregRes = await runEdgectl(['unregister', 'alice--portal'], {
+      EDGEKIT_STATE_DIR: stateDir,
+      EDGEKIT_DYNAMIC_DIR: dynamicDir,
+      EDGEKIT_POLICY: policyFile,
+      EDGEKIT_ENABLED: '1',
+    });
+    assert.equal(unregRes.code, 0);
+    assert.equal(await fs.stat(ymlPath).then(() => true).catch(() => false), false);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('cli register site route: host not in siteHosts refused', async () => {
+  const tmpDir = await createTempDir('edgectl-test-site-badhost-');
+  const stateDir = path.join(tmpDir, 'state');
+  const dynamicDir = path.join(tmpDir, 'dynamic');
+  const policyFile = path.join(tmpDir, 'policy.json');
+
+  try {
+    await fs.mkdir(dynamicDir, { recursive: true });
+    await fs.writeFile(policyFile, JSON.stringify(SAMPLE_POLICY, null, 2));
+
+    const res = await runEdgectl(
+      [
+        'register',
+        '--site',
+        '--owner',
+        'alice',
+        '--name',
+        'portal',
+        '--host',
+        'sites.example.com', // allowedHosts, but NOT in siteHosts
+        '--path-prefix',
+        '/portal',
+        '--target',
+        'http://10.20.0.5:3000',
+      ],
+      {
+        EDGEKIT_STATE_DIR: stateDir,
+        EDGEKIT_DYNAMIC_DIR: dynamicDir,
+        EDGEKIT_POLICY: policyFile,
+        EDGEKIT_ENABLED: '1',
+      }
+    );
+
+    assert.equal(res.code, 2);
+    assert.ok(res.stderr.includes('policy.siteHosts'));
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('cli register site route: /p prefix refused', async () => {
+  const tmpDir = await createTempDir('edgectl-test-site-p-refused-');
+  const stateDir = path.join(tmpDir, 'state');
+  const dynamicDir = path.join(tmpDir, 'dynamic');
+  const policyFile = path.join(tmpDir, 'policy.json');
+
+  try {
+    await fs.mkdir(dynamicDir, { recursive: true });
+    await fs.writeFile(policyFile, JSON.stringify(SAMPLE_POLICY, null, 2));
+
+    const res = await runEdgectl(
+      [
+        'register',
+        '--site',
+        '--owner',
+        'alice',
+        '--name',
+        'portal',
+        '--host',
+        'portal.example.com',
+        '--path-prefix',
+        '/p/portal',
+        '--target',
+        'http://10.20.0.5:3000',
+      ],
+      {
+        EDGEKIT_STATE_DIR: stateDir,
+        EDGEKIT_DYNAMIC_DIR: dynamicDir,
+        EDGEKIT_POLICY: policyFile,
+        EDGEKIT_ENABLED: '1',
+      }
+    );
+
+    assert.equal(res.code, 2);
+    assert.ok(res.stderr.includes("'/p' and anything under it is refused"));
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('cli register site route: collision refused', async () => {
+  const tmpDir = await createTempDir('edgectl-test-site-collision-');
+  const stateDir = path.join(tmpDir, 'state');
+  const dynamicDir = path.join(tmpDir, 'dynamic');
+  const policyFile = path.join(tmpDir, 'policy.json');
+
+  try {
+    await fs.mkdir(dynamicDir, { recursive: true });
+    await fs.writeFile(policyFile, JSON.stringify(SAMPLE_POLICY, null, 2));
+
+    const env = {
+      EDGEKIT_STATE_DIR: stateDir,
+      EDGEKIT_DYNAMIC_DIR: dynamicDir,
+      EDGEKIT_POLICY: policyFile,
+      EDGEKIT_ENABLED: '1',
+    };
+
+    const res1 = await runEdgectl(
+      [
+        'register',
+        '--site',
+        '--owner',
+        'alice',
+        '--name',
+        'app1',
+        '--host',
+        'portal.example.com',
+        '--path-prefix',
+        '/app',
+        '--target',
+        'http://10.20.0.5:3000',
+      ],
+      env
+    );
+    assert.equal(res1.code, 0);
+
+    const res2 = await runEdgectl(
+      [
+        'register',
+        '--site',
+        '--owner',
+        'bob',
+        '--name',
+        'app2',
+        '--host',
+        'portal.example.com',
+        '--path-prefix',
+        '/app',
+        '--target',
+        'http://10.30.0.5:3000',
+      ],
+      env
+    );
+    assert.equal(res2.code, 2);
+    assert.ok(res2.stderr.includes('route collision'));
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('cli register site route with redirect renders relative Location', async () => {
+  const tmpDir = await createTempDir('edgectl-test-site-redirect-');
+  const stateDir = path.join(tmpDir, 'state');
+  const dynamicDir = path.join(tmpDir, 'dynamic');
+  const policyFile = path.join(tmpDir, 'policy.json');
+
+  try {
+    await fs.mkdir(dynamicDir, { recursive: true });
+    await fs.writeFile(policyFile, JSON.stringify(SAMPLE_POLICY, null, 2));
+
+    const res = await runEdgectl(
+      [
+        'register',
+        '--site',
+        '--owner',
+        'alice',
+        '--name',
+        'app',
+        '--host',
+        'portal.example.com',
+        '--path-prefix',
+        '/app',
+        '--target',
+        'http://10.20.0.5:3000',
+        '--redirect-exact-from',
+        '/',
+        '--redirect-to',
+        '/app/',
+      ],
+      {
+        EDGEKIT_STATE_DIR: stateDir,
+        EDGEKIT_DYNAMIC_DIR: dynamicDir,
+        EDGEKIT_POLICY: policyFile,
+        EDGEKIT_ENABLED: '1',
+      }
+    );
+
+    assert.equal(res.code, 0, `stderr: ${res.stderr}`);
+
+    const ymlPath = path.join(dynamicDir, 'alice--app.yml');
+    const ymlRaw = await fs.readFile(ymlPath, 'utf8');
+    const parsedYml = parseYaml(ymlRaw);
+
+    const redirectRouter = parsedYml.http.routers['alice--app-redirect'];
+    assert.ok(redirectRouter);
+    assert.equal(redirectRouter.rule, 'Host(`portal.example.com`) && Path(`/`)');
+    assert.equal(redirectRouter.priority, 100);
+
+    const redirectMw = parsedYml.http.middlewares['redirect-alice--app'];
+    assert.ok(redirectMw);
+    assert.equal(redirectMw.redirectRegex.replacement, '/app/');
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+

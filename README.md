@@ -26,7 +26,7 @@ edge-kit publishes HTTP routes through Traefik's file provider, optionally behin
 | `EDGEKIT_REOPEN_TIMEOUT` | `10` | Seconds to wait for `access.log` to reappear after rotation |
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never printed or logged. Keep files that hold it at mode 600 |
 | `CF_ACCESS_TEAM_DOMAIN` | none (required for `access-verifier`) | Cloudflare Access team domain the verifier fetches its JWKS from (`https://<domain>/cdn-cgi/access/certs`) |
-| `CF_ACCESS_AUD` | none (required for `access-verifier`) | Expected `aud` claim on the Cloudflare Access JWT |
+| `CF_ACCESS_AUD` | none (required for `access-verifier`) | Expected `aud` claim on the Cloudflare Access JWT (comma-separated list accepted) |
 | `CF_API_TOKEN` | none (required for `edge ingress`\|`dns`\|`access`) | Cloudflare API token used to read and, with `--apply`, write tunnel ingress, DNS and Access config. Read from the environment only: never printed, logged or accepted as a flag |
 | `CF_ACCOUNT_ID` | none (required for `edge ingress` and `edge access`) | Cloudflare account ID |
 | `CF_TUNNEL_ID` | none (required for `edge ingress`) | Cloudflare tunnel ID whose ingress config is read/updated |
@@ -57,6 +57,7 @@ All commands go through `bin/edgectl`, which runs the CLI under `flock`.
 | Command | Does | Needs `EDGEKIT_ENABLED=1` |
 |---------|------|---------------------------|
 | `register --owner <o> --name <n> --host <h> --target <http://ip:port> [--access private\|public] [--no-strip]` | Creates a route, or updates it if the spec differs. Prints the spec as JSON | yes |
+| `register --site --owner <o> --name <n> --host <h> --path-prefix </x> --target <http://ip:port> [--access private\|public] [--no-strip] [--redirect-exact-from </> --redirect-to </y/>]` | Creates a site route with a custom path prefix. Prints the spec as JSON | yes |
 | `unregister <id>` | Removes the route and its rendered file. Idempotent, exits 0 when already removed | yes |
 | `list` | Prints all routes as JSON | no |
 | `reconcile` | Removes rendered files that have no matching route, and re-creates missing ones | yes |
@@ -64,13 +65,15 @@ All commands go through `bin/edgectl`, which runs the CLI under `flock`.
 ```bash
 bin/edgectl register --owner alice --name blog \
   --host sites.example.com --target http://10.20.0.5:3000
+bin/edgectl register --site --owner alice --name portal \
+  --host portal.example.com --path-prefix /portal --target http://10.20.0.5:3000
 bin/edgectl list
 bin/edgectl unregister alice--blog
 ```
 
 Exit codes: `0` success, `2` validation or usage error (including the per-owner cap and the registration rate limit), `3` mutation while disabled, `1` other failure.
 
-The route ID is `<owner>--<name>`, and the public path is `/p/<id>/`; a request to the bare `/p/<id>` (no trailing slash) redirects to `/p/<id>/` so relative asset URLs resolve.
+The route ID is `<owner>--<name>`. For standard routes, the public path is `/p/<id>/`; a request to the bare `/p/<id>` (no trailing slash) redirects to `/p/<id>/` so relative asset URLs resolve. For site routes (`--site`), the path layout is defined by `--path-prefix </x>` (strip prefix defaults to false, use `--strip` to enable), and optional `--redirect-exact-from <from> --redirect-to <to>` configures a root or path redirect using a relative Location.
 
 ## Cloudflare edge commands
 
@@ -105,6 +108,7 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
 {
   "reservedOwners": ["ops", "system", "internal"],
   "allowedHosts": ["sites.example.com", "test.example.com"],
+  "siteHosts": ["portal.example.com"],
   "ownerCidrs": {
     "alice": ["10.20.0.0/16"],
     "bob": ["10.30.0.0/16"]
@@ -114,7 +118,8 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
 }
 ```
 
-- `allowedHosts`: the only hosts a route may use.
+- `allowedHosts`: the only hosts a standard `/p` route may use.
+- `siteHosts`: the only hosts a site route (`--site`) may use (optional, default none).
 - `ownerCidrs`: the IPv4 ranges each owner's targets must fall in.
 - `reservedOwners`: merged with the built-in list `DEFAULT_RESERVED_OWNERS` in `src/domain/routeSpec.ts`. A trailing `*` matches a prefix.
 - `denyIps`: when set, replaces the default deny list (`127.0.0.0/8`, `169.254.0.0/16`, `0.0.0.0/8`).
@@ -124,9 +129,9 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
 
 1. Owner matches `^[a-z0-9]+$`, so no hyphens. Name matches `^[a-z0-9][a-z0-9-]{0,38}$`. This stops `alice` and `alice-bob` from colliding.
 2. Reserved owners are refused.
-3. Host must be in `allowedHosts` and match `^[a-z0-9.-]+$`.
+3. Host must match `^[a-z0-9.-]+$`, and be in `allowedHosts` (for `/p` routes) or `siteHosts` (for site routes).
 4. Target must be `http://<IPv4 literal>:<port>`. DNS names and IPv6 are refused. The IP must be inside the owner's CIDRs and outside the deny list.
-5. `pathPrefix` is always `/p/<id>/`. A caller-supplied value that differs is an error.
+5. For standard routes, `pathPrefix` is always `/p/<id>/` (a caller-supplied value that differs is an error). For site routes, `pathPrefix` must start with `/` and match `^/[a-zA-Z0-9._~/-]*$`, `/p` and anything under it is refused, and two site routes on the same host and prefix collide and are refused.
 6. `--access public` requires the owner to be in `publicOwners`.
 7. Per-owner route cap (20) and registration rate limit (10 per 60-second window) apply.
 8. Writes are atomic: a `.tmp` file, then rename.
@@ -136,6 +141,23 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
 12. Private routes use `edgekit-access-jwt@file`, which forwards to `http://access-verifier:9000/verify`. The `access-verifier` service (`src/verifier/server.ts`) checks the `Cf-Access-Jwt-Assertion` header's signature (RS256, JWKS from `CF_ACCESS_TEAM_DOMAIN`, cached), `exp` and `aud`; a missing header, bad signature, expired token or wrong `aud` all return 401, so private routes fail closed.
 
 `dynamic/security.yml` applies `edgekit-security-ratelimit` to every route: average 20 requests per second, burst 60, keyed on the `Cf-Connecting-Ip` header. Requests without that header share one bucket.
+
+## Hardening checklist
+
+Each control is enforced by one file. `tests/compose/hardening.test.ts` parses every file in this table and asserts the fact next to it, so a control and the file that enforces it cannot drift apart silently.
+
+| Control | Enforced by |
+|---------|-------------|
+| Traefik's HTTP entrypoint is published on `127.0.0.1` only, never `0.0.0.0` or all interfaces | `compose.yml` |
+| No service mounts the Docker socket | `compose.yml` |
+| Security headers (HSTS, `X-Frame-Options: SAMEORIGIN`, nosniff, no `server` header, ...) and the rate limit (20 req/s average, burst 60, keyed on `Cf-Connecting-Ip`) apply to every route | `dynamic/security.yml` |
+| Known scanner paths (`/.env`, `/.git`, `/wp-admin`, `/wp-login.php`, `/phpunit`, `/actuator`, ...) are blackholed by a priority-1000 router before reaching any real backend | `dynamic/probe-block.yml` |
+| Any request that matches no registered route or other router gets a branded JSON 404 (not Traefik's bare one) from a priority-1 catch-all router | `dynamic/notfound.yml`, `notfound/default.conf` |
+| Reserved owners (`DEFAULT_RESERVED_OWNERS`, including `apps`, `admin`, `api`, `control`, `connect`) are refused, and `--access public` is refused unless the owner is in `policy.publicOwners` | `src/domain/routeSpec.ts` |
+| Targets must be an `http://<IPv4 literal>:<port>` address inside the owner's CIDR; DNS names, IPv6, loopback, link-local and `0.0.0.0/8` are refused | `src/domain/routeSpec.ts` |
+| `CF_API_TOKEN` is read from the environment only — never a `--token` flag, never printed, redacted on error — and so never lands on disk | `src/cli/main.ts` |
+| Private routes fail closed: a missing `Cf-Access-Jwt-Assertion` header, bad signature, expired token or wrong `aud` all return 401 | `src/verifier/server.ts` |
+| Traefik's access log is JSON (`compose.yml`) and is rotated by age, signalled with `USR1`, compressed, and pruned to the newest 5 archives | `scripts/rotate_traefik_logs.sh` |
 
 ## Running tests
 
@@ -156,6 +178,11 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
   ./scripts/port-check.sh
   ```
   Lists listening TCP sockets (`ss -ltnH`) and published container ports (`docker ps --format`), and exits 1 if any kit port is bound to `0.0.0.0`, `[::]` or `*` (all interfaces). The kit ports default to `18080,18081` and can be overridden with `EDGEKIT_PORTS` (comma-separated). It also prints one advisory line on whether `ufw status` shows a `DENY` rule for those ports; `ufw` is advisory only, prints `ufw: unknown` when it needs root and is unreadable, and is never run with `sudo`. Output is capped at 10 lines. Tested by `tests/scripts/portCheck.test.ts` (run as part of `npm test`), which stubs `ss` on `PATH`.
+- Outside-in port scan (`nmap` required). Only meaningful when run from a network outside the host's LAN — a different ISP connection, a cloud VM, mobile data, etc. — since a scan from inside the same LAN is shaped by that LAN's own NAT/firewall and proves nothing about what the public internet can reach:
+  ```bash
+  ./scripts/outside-in.sh <host-or-ip> [allowed-ports]
+  ```
+  Runs `nmap -Pn -p- --min-rate 1000` against the target and exits 1 if any open port is outside the allowed list (comma-separated, default `443`). Exits 2 if `nmap` is missing or the target argument is missing. Output is capped at 10 lines. Tested by `tests/scripts/outsideIn.test.ts` (run as part of `npm test`), which stubs `nmap` on `PATH`.
 - End-to-end definition-of-done scenario (Docker daemon required). It runs in temp dirs with `EDGEKIT_ENABLED=1` and prints PASS or FAIL per step. It covers a successful register, refused owners and targets, the disabled exit code, unregister (including a second run), reconcile removing an orphan file, and then a single throwaway-hostname flow: register a public route, confirm it is served through Traefik on `127.0.0.1:18080`, confirm a private route is refused without a token (the `edgekit-access-jwt@file` middleware fails closed with no Access verifier reachable), and unregister both routes. Everything runs against local temp dirs and throwaway Docker containers; by default it never contacts Cloudflare:
   ```bash
   ./scripts/e2e-local.sh

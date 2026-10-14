@@ -29,7 +29,10 @@ function specsEqual(a: RouteSpec, b: RouteSpec): boolean {
     a.pathPrefix === b.pathPrefix &&
     a.target === b.target &&
     a.access === b.access &&
-    a.stripPrefix === b.stripPrefix
+    a.stripPrefix === b.stripPrefix &&
+    (a.kind ?? 'prefix') === (b.kind ?? 'prefix') &&
+    a.redirectExactFrom === b.redirectExactFrom &&
+    a.redirectTo === b.redirectTo
   );
 }
 
@@ -50,8 +53,9 @@ export class RouteManager {
   }
 
   async register(input: unknown): Promise<RegisterResult> {
+    const existingRoutes = await this.deps.store.list();
     // 1. Validation (pure, no I/O before validation passes)
-    const validationResult = validateRouteSpec(input, this.deps.policy);
+    const validationResult = validateRouteSpec(input, this.deps.policy, existingRoutes);
     if (!validationResult.ok) {
       throw new Error(`Validation failed: ${validationResult.errors.join(', ')}`);
     }
@@ -68,8 +72,7 @@ export class RouteManager {
 
     // 3. Per-owner route cap: if this is a new route id, check cap
     if (!existing) {
-      const allRoutes = await this.deps.store.list();
-      const ownerCount = allRoutes.filter(r => r.owner === spec.owner).length;
+      const ownerCount = existingRoutes.filter(r => r.owner === spec.owner).length;
       if (ownerCount >= this.maxRoutesPerOwner) {
         throw new Error(
           `Max routes per owner exceeded for owner '${spec.owner}' (current: ${ownerCount}, max: ${this.maxRoutesPerOwner})`
