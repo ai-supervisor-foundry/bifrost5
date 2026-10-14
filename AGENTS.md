@@ -65,6 +65,8 @@ Optional keys: `denyIps`, `publicOwners`. Built-in reserved owners (`apps`, `adm
 
 Mutations with the switch off exit with code 3. `edgectl` refuses to run without `EDGEKIT_STATE_DIR`.
 
+`edge ingress|dns|access <hostname> ... [--apply]` (see README.md "Cloudflare edge commands") talk to the Cloudflare API directly, bypassing `EDGEKIT_STATE_DIR`/`EDGEKIT_DYNAMIC_DIR`/`EDGEKIT_POLICY`/`EDGEKIT_ENABLED`. Dry-run by default: prints the diff and exits 0 without mutating. `--apply` performs the mutation. `CF_API_TOKEN` is read from the environment only, never printed.
+
 ## Environment variables
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -80,6 +82,10 @@ Mutations with the switch off exit with code 3. `edgectl` refuses to run without
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never print or log it. Keep secret files at mode 600 |
 | `CF_ACCESS_TEAM_DOMAIN` | none | Required by `access-verifier`: Cloudflare Access team domain for JWKS (`https://<domain>/cdn-cgi/access/certs`) |
 | `CF_ACCESS_AUD` | none | Required by `access-verifier`: expected `aud` claim on the Access JWT |
+| `CF_API_TOKEN` | none | Required by `edge ingress\|dns\|access`: Cloudflare API token. Env only, never a flag, never printed |
+| `CF_ACCOUNT_ID` | none | Required by `edge ingress` and `edge access` |
+| `CF_TUNNEL_ID` | none | Required by `edge ingress` |
+| `CF_ZONE_ID` | none | Required by `edge dns` |
 
 ## Rules
 1. Never push to `main`. Ship by branch + PR. Why: main stays green and reviewable.
@@ -126,5 +132,4 @@ Gate: `npm run ci` (`./scripts/ci.sh`). It stops at the first failing step, prin
 Fast loop: `npm test`. Full proof: `npm run ci`.
 
 ## Not done yet
-- Tunnel and DNS wiring in the CLI (`src/adapters/cloudflareDns.ts` and `cloudflareIngress.ts` exist, not yet wired to `edgectl`)
-- Cloudflare Access app automation
+- No read-only GET against the real Cloudflare API has been run
