@@ -1,0 +1,16 @@
+http:
+  routers:
+    edgekit-notfound:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - web
+      priority: 1
+      middlewares:
+        - edgekit-security@file
+      service: edgekit-notfound
+
+  services:
+    edgekit-notfound:
+      loadBalancer:
+        servers:
+          - url: http://edgekit-notfound:80

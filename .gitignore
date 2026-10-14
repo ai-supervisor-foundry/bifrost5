@@ -2,6 +2,7 @@ desired/
 dynamic/*.yml
 !dynamic/security.yml
 !dynamic/probe-block.yml
+!dynamic/notfound.yml
 .env*
 *.tmp
 node_modules/

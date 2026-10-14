@@ -2,14 +2,24 @@
 http:
   routers:
     alice--blog:
-      rule: Host(`sites.example.com`) && (Path(`/p/alice--blog`) ||
-        PathPrefix(`/p/alice--blog/`))
+      rule: Host(`sites.example.com`) && PathPrefix(`/p/alice--blog/`)
       service: alice--blog
       middlewares:
         - edgekit-security@file
         - strip-alice--blog
         - edgekit-access-jwt@file
+    alice--blog-bare:
+      rule: Host(`sites.example.com`) && Path(`/p/alice--blog`)
+      service: noop@internal
+      middlewares:
+        - edgekit-security@file
+        - slash-alice--blog
   middlewares:
+    slash-alice--blog:
+      redirectRegex:
+        regex: ^(https?://[^/]+)/p/alice--blog$
+        replacement: ${1}/p/alice--blog/
+        permanent: false
     strip-alice--blog:
       stripPrefix:
         prefixes:
