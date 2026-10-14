@@ -306,10 +306,20 @@ test('bare-path router <id>-bare exists, redirects via redirectRegex, and uses n
     const redirectMw = parsed.http.middlewares['slash-alice--blog'];
     assert.ok(redirectMw, 'slash-alice--blog middleware must exist');
     assert.deepEqual(redirectMw.redirectRegex, {
-      regex: '^(https?://[^/]+)/p/alice--blog$',
-      replacement: '${1}/p/alice--blog/',
+      regex: '^https?://[^/]+/p/alice--blog$',
+      replacement: '/p/alice--blog/',
       permanent: false,
     });
+    assert.equal(
+      redirectMw.redirectRegex.replacement,
+      '/p/alice--blog/',
+      'replacement must be the bare relative path, no scheme or host'
+    );
+    assert.equal(
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(redirectMw.redirectRegex.replacement),
+      false,
+      'replacement must not contain a scheme'
+    );
 
     // No service named "alice--blog-bare" or similar should be added for the redirect router.
     assert.equal(parsed.http.services['alice--blog-bare'], undefined);
@@ -371,12 +381,18 @@ test('ids containing -- are escaped correctly in the redirect regex', async () =
     assert.ok(redirectMw, 'slash middleware for an id containing -- must exist');
     assert.equal(
       redirectMw.redirectRegex.regex,
-      '^(https?://[^/]+)/p/multiword--multi-part-name$',
+      '^https?://[^/]+/p/multiword--multi-part-name$',
       'the -- separator must appear literally, unescaped, in the compiled regex'
     );
     assert.equal(
       redirectMw.redirectRegex.replacement,
-      '${1}/p/multiword--multi-part-name/'
+      '/p/multiword--multi-part-name/',
+      'replacement must be the bare relative path, no scheme or host, even when the id contains --'
+    );
+    assert.equal(
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(redirectMw.redirectRegex.replacement),
+      false,
+      'replacement must not contain a scheme'
     );
 
     const bareRouter = parsed.http.routers['multiword--multi-part-name-bare'];
