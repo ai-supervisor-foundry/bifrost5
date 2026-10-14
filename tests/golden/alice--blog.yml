@@ -17,8 +17,8 @@ http:
   middlewares:
     slash-alice--blog:
       redirectRegex:
-        regex: ^(https?://[^/]+)/p/alice--blog$
-        replacement: ${1}/p/alice--blog/
+        regex: ^https?://[^/]+/p/alice--blog$
+        replacement: /p/alice--blog/
         permanent: false
     strip-alice--blog:
       stripPrefix:

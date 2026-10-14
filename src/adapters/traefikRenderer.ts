@@ -88,8 +88,8 @@ export class TraefikFileRenderer implements RouteRenderPort {
     httpObj.middlewares = {
       [slashMiddlewareId]: {
         redirectRegex: {
-          regex: `^(https?://[^/]+)/p/${spec.id}$`,
-          replacement: `\${1}/p/${spec.id}/`,
+          regex: `^https?://[^/]+/p/${spec.id}$`,
+          replacement: `/p/${spec.id}/`,
           permanent: false,
         },
       },
