@@ -44,6 +44,7 @@ test('golden test: render alice--blog spec matches tests/golden/alice--blog.yml 
     const ruleString: string = parsed.http.routers['alice--blog'].rule;
     assert.equal(ruleString.includes('/p/alice--blog/'), true, 'Rule must contain /p/alice--blog/ with trailing slash');
     assert.equal(ruleString.includes('PathPrefix(`/p/alice--blog`)'), false, 'Rule must never contain bare PathPrefix(`/p/alice--blog`)');
+    assert.equal(ruleString.includes('Path(`/p/alice--blog`)'), false, 'Main router must not also match the bare Path');
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
@@ -106,7 +107,7 @@ test('route without stripPrefix does not include strip middleware', async () => 
       'edgekit-security@file',
       'edgekit-access-jwt@file',
     ]);
-    assert.equal(parsed.http.middlewares, undefined);
+    assert.deepEqual(Object.keys(parsed.http.middlewares), ['slash-carol--api']);
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
@@ -237,7 +238,7 @@ test('remove(id) deletes <id>.yml and is idempotent', async () => {
   }
 });
 
-test('output parses back with yaml and has exactly one router', async () => {
+test('output parses back with yaml and has exactly one main router plus its bare-path router', async () => {
   const tmpDir = await createTempDir('ek-renderer-parse-');
   try {
     const renderer = new TraefikFileRenderer(tmpDir);
@@ -262,14 +263,124 @@ test('output parses back with yaml and has exactly one router', async () => {
     assert.ok(parsed.http.routers);
 
     const routerKeys = Object.keys(parsed.http.routers);
-    assert.equal(routerKeys.length, 1);
-    assert.equal(routerKeys[0], 'alice--blog');
+    assert.equal(routerKeys.length, 2);
+    assert.deepEqual(routerKeys, ['alice--blog', 'alice--blog-bare']);
 
     assert.ok(parsed.http.services);
     const serviceKeys = Object.keys(parsed.http.services);
     assert.equal(serviceKeys.length, 1);
     assert.equal(serviceKeys[0], 'alice--blog');
     assert.equal(parsed.http.services['alice--blog'].loadBalancer.servers[0].url, 'http://10.20.0.5:3000');
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('bare-path router <id>-bare exists, redirects via redirectRegex, and uses noop@internal as its service', async () => {
+  const tmpDir = await createTempDir('ek-renderer-bare-');
+  try {
+    const renderer = new TraefikFileRenderer(tmpDir);
+
+    const spec: RouteSpec = {
+      id: 'alice--blog',
+      owner: 'alice',
+      host: 'sites.example.com',
+      pathPrefix: '/p/alice--blog/',
+      target: 'http://10.20.0.5:3000',
+      access: 'private',
+      stripPrefix: true,
+    };
+
+    await renderer.write(spec);
+
+    const content = await fs.readFile(path.join(tmpDir, 'alice--blog.yml'), 'utf8');
+    const parsed: any = parse(content);
+
+    const bareRouter = parsed.http.routers['alice--blog-bare'];
+    assert.ok(bareRouter, 'bare router alice--blog-bare must exist');
+    assert.equal(bareRouter.rule, 'Host(`sites.example.com`) && Path(`/p/alice--blog`)');
+    assert.equal(bareRouter.service, 'noop@internal', 'bare router must not get its own service');
+    assert.deepEqual(bareRouter.middlewares, ['edgekit-security@file', 'slash-alice--blog']);
+    assert.equal(bareRouter.middlewares[0], 'edgekit-security@file', 'edgekit-security@file must be first in the chain');
+
+    const redirectMw = parsed.http.middlewares['slash-alice--blog'];
+    assert.ok(redirectMw, 'slash-alice--blog middleware must exist');
+    assert.deepEqual(redirectMw.redirectRegex, {
+      regex: '^(https?://[^/]+)/p/alice--blog$',
+      replacement: '${1}/p/alice--blog/',
+      permanent: false,
+    });
+
+    // No service named "alice--blog-bare" or similar should be added for the redirect router.
+    assert.equal(parsed.http.services['alice--blog-bare'], undefined);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('main router matches only the slash-prefixed path, not the bare path', async () => {
+  const tmpDir = await createTempDir('ek-renderer-mainonly-');
+  try {
+    const renderer = new TraefikFileRenderer(tmpDir);
+
+    const spec: RouteSpec = {
+      id: 'alice--blog',
+      owner: 'alice',
+      host: 'sites.example.com',
+      pathPrefix: '/p/alice--blog/',
+      target: 'http://10.20.0.5:3000',
+      access: 'private',
+      stripPrefix: true,
+    };
+
+    await renderer.write(spec);
+
+    const content = await fs.readFile(path.join(tmpDir, 'alice--blog.yml'), 'utf8');
+    const parsed: any = parse(content);
+
+    const mainRouter = parsed.http.routers['alice--blog'];
+    assert.equal(mainRouter.rule, 'Host(`sites.example.com`) && PathPrefix(`/p/alice--blog/`)');
+    assert.equal(mainRouter.rule.includes('Path(`/p/alice--blog`)'), false, 'main router must not also match the bare path');
+    assert.equal(mainRouter.rule.includes('||'), false, 'main router rule should no longer be an OR of two path matches');
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('ids containing -- are escaped correctly in the redirect regex', async () => {
+  const tmpDir = await createTempDir('ek-renderer-regexid-');
+  try {
+    const renderer = new TraefikFileRenderer(tmpDir);
+
+    const spec: RouteSpec = {
+      id: 'multiword--multi-part-name',
+      owner: 'multiword',
+      host: 'sites.example.com',
+      pathPrefix: '/p/multiword--multi-part-name/',
+      target: 'http://10.20.0.6:3000',
+      access: 'public',
+      stripPrefix: false,
+    };
+
+    await renderer.write(spec);
+
+    const content = await fs.readFile(path.join(tmpDir, 'multiword--multi-part-name.yml'), 'utf8');
+    const parsed: any = parse(content);
+
+    const redirectMw = parsed.http.middlewares['slash-multiword--multi-part-name'];
+    assert.ok(redirectMw, 'slash middleware for an id containing -- must exist');
+    assert.equal(
+      redirectMw.redirectRegex.regex,
+      '^(https?://[^/]+)/p/multiword--multi-part-name$',
+      'the -- separator must appear literally, unescaped, in the compiled regex'
+    );
+    assert.equal(
+      redirectMw.redirectRegex.replacement,
+      '${1}/p/multiword--multi-part-name/'
+    );
+
+    const bareRouter = parsed.http.routers['multiword--multi-part-name-bare'];
+    assert.equal(bareRouter.rule, 'Host(`sites.example.com`) && Path(`/p/multiword--multi-part-name`)');
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }

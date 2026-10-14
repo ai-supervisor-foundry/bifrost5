@@ -46,7 +46,9 @@ docker compose up -d
 docker compose --profile tunnel up -d    # also starts cloudflared; needs TUNNEL_TOKEN
 ```
 
-`compose.yml` mounts `./dynamic` into Traefik, so `EDGEKIT_DYNAMIC_DIR` must point at that directory for Traefik to load the routes. `dynamic/security.yml` is tracked; other `dynamic/*.yml` files are generated and gitignored.
+`compose.yml` mounts `./dynamic` into Traefik, so `EDGEKIT_DYNAMIC_DIR` must point at that directory for Traefik to load the routes. `dynamic/security.yml` and `dynamic/notfound.yml` are tracked; other `dynamic/*.yml` files are generated and gitignored.
+
+Any request that does not match a registered route, or any other router, is answered by the `edgekit-notfound` catch-all: `dynamic/notfound.yml` registers a `PathPrefix(\`/\`)` router at priority 1 (so it never outranks the priority-1000 probe-block router or any registered route — Traefik gives longer rules higher priority by default) pointed at the `edgekit-notfound` service (`nginx:alpine`, no published ports, `notfound/default.conf` mounted read-only) in `compose.yml`. It returns HTTP 404 with `Content-Type: application/json` and body `{"statusCode":404,"message":"Howdy, you seem lost. Resources not found"}`.
 
 ## Commands
 
@@ -68,7 +70,7 @@ bin/edgectl unregister alice--blog
 
 Exit codes: `0` success, `2` validation or usage error (including the per-owner cap and the registration rate limit), `3` mutation while disabled, `1` other failure.
 
-The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
+The route ID is `<owner>--<name>`, and the public path is `/p/<id>/`; a request to the bare `/p/<id>` (no trailing slash) redirects to `/p/<id>/` so relative asset URLs resolve.
 
 ## Cloudflare edge commands
 
@@ -171,9 +173,17 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
   ```bash
   npm run ci
   ```
+- Manual check for the `edgekit-notfound` catch-all (not covered by `./scripts/e2e-local.sh`; see "Not done yet"): with the stack up (`docker compose up -d`), hit any unmatched host or path and confirm a branded 404, not Traefik's bare one:
+  ```bash
+  curl -i http://127.0.0.1:18080/this-does-not-exist
+  # HTTP/1.1 404 Not Found
+  # Content-Type: application/json
+  # {"statusCode":404,"message":"Howdy, you seem lost. Resources not found"}
+  ```
 
 ## Not done yet
 
 - No read-only GET against the real Cloudflare API has been run
 - `./scripts/e2e-local.sh` refuses a private route with HTTP 500, not 401 or 403, because the throwaway Traefik container it starts cannot reach the Access verifier
 - Not proven end to end: a logged-in request through Cloudflare Access reaching a registered origin, and a valid Access token passing through the verifier
+- The `edgekit-notfound` catch-all (`dynamic/notfound.yml` + the `edgekit-notfound` service) is covered by `tests/compose/notfound.test.ts` and the manual check above, but not by `./scripts/e2e-local.sh`: its throwaway Traefik container runs with plain `docker run` on the default bridge network, which does not resolve service names by DNS, so `http://edgekit-notfound:80` would not resolve there without reworking that step onto a user-defined network alongside every other throwaway container it starts

@@ -67,23 +67,38 @@ export class TraefikFileRenderer implements RouteRenderPort {
 
     const barePath = `/p/${spec.id}`;
     const slashPath = `/p/${spec.id}/`;
+    const bareRouterId = `${spec.id}-bare`;
+    const slashMiddlewareId = `slash-${spec.id}`;
 
     const httpObj: Record<string, any> = {
       routers: {
         [spec.id]: {
-          rule: `Host(\`${spec.host}\`) && (Path(\`${barePath}\`) || PathPrefix(\`${slashPath}\`))`,
+          rule: `Host(\`${spec.host}\`) && PathPrefix(\`${slashPath}\`)`,
           service: spec.id,
           middlewares,
+        },
+        [bareRouterId]: {
+          rule: `Host(\`${spec.host}\`) && Path(\`${barePath}\`)`,
+          service: 'noop@internal',
+          middlewares: ['edgekit-security@file', slashMiddlewareId],
+        },
+      },
+    };
+
+    httpObj.middlewares = {
+      [slashMiddlewareId]: {
+        redirectRegex: {
+          regex: `^(https?://[^/]+)/p/${spec.id}$`,
+          replacement: `\${1}/p/${spec.id}/`,
+          permanent: false,
         },
       },
     };
 
     if (spec.stripPrefix) {
-      httpObj.middlewares = {
-        [`strip-${spec.id}`]: {
-          stripPrefix: {
-            prefixes: [pathPrefix],
-          },
+      httpObj.middlewares[`strip-${spec.id}`] = {
+        stripPrefix: {
+          prefixes: [pathPrefix],
         },
       };
     }
