@@ -68,7 +68,7 @@ bin/edgectl unregister alice--blog
 
 Exit codes: `0` success, `2` validation or usage error (including the per-owner cap and the registration rate limit), `3` mutation while disabled, `1` other failure.
 
-The route ID is `<owner>--<name>`, and the public path is `/p/<id>`.
+The route ID is `<owner>--<name>`, and the public path is `/p/<id>/`; a request to the bare `/p/<id>` (no trailing slash) redirects to `/p/<id>/` so relative asset URLs resolve.
 
 ## Cloudflare edge commands
 
