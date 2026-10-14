@@ -46,6 +46,14 @@ services:
       - edgekit-net
     restart: unless-stopped
 
+  edgekit-notfound:
+    image: nginx:alpine
+    volumes:
+      - ./notfound/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - edgekit-net
+    restart: unless-stopped
+
 networks:
   edgekit-net:
     name: edgekit-net
