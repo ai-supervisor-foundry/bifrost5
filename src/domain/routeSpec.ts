@@ -1,3 +1,5 @@
+export type RouteKind = 'prefix' | 'site';
+
 export type RouteSpec = {
   id: string;
   owner: string;
@@ -6,11 +8,15 @@ export type RouteSpec = {
   target: string;
   access: 'private' | 'public';
   stripPrefix: boolean;
+  kind?: RouteKind;
+  redirectExactFrom?: string;
+  redirectTo?: string;
 };
 
 export type Policy = {
   reservedOwners?: string[];
   allowedHosts: string[];
+  siteHosts?: string[];
   ownerCidrs: Record<string, string[]>;
   denyIps?: string[];
   publicOwners?: string[];
@@ -100,9 +106,17 @@ function ipMatchesCidr(ipNum: number, cidr: string): boolean {
   return (ipNum & parsed.mask) >>> 0 === parsed.network;
 }
 
+const SITE_PATH_PREFIX_REGEX = /^\/[a-zA-Z0-9._~/-]*$/;
+
+function normalizePathPrefix(p: string): string {
+  if (p === '/') return '/';
+  return p.replace(/\/+$/, '');
+}
+
 export function validateRouteSpec(
   input: unknown,
-  policy: Policy
+  policy: Policy,
+  existingRoutes?: RouteSpec[]
 ): { ok: true; spec: RouteSpec } | { ok: false; errors: string[] } {
   const errors: string[] = [];
 
@@ -125,6 +139,10 @@ export function validateRouteSpec(
   if (typeof raw.target !== 'string') {
     errors.push('target is required and must be a string');
   }
+
+  // Kind determination: kind === 'site' or raw.site === true
+  const isSite = raw.kind === 'site' || raw.site === true;
+  const kind: RouteKind = isSite ? 'site' : 'prefix';
 
   const reservedOwners = Array.from(
     new Set([...DEFAULT_RESERVED_OWNERS, ...(policy.reservedOwners ?? [])])
@@ -195,21 +213,99 @@ export function validateRouteSpec(
     }
   }
 
-  // Rule 2: pathPrefix is DERIVED as /p/<id>/ ; a caller-supplied pathPrefix that differs is an error
+  // Path prefix validation
+  let pathPrefix = '';
   const expectedPathPrefix = typeof raw.id === 'string' ? `/p/${id}/` : '';
-  if ('pathPrefix' in raw && raw.pathPrefix !== undefined) {
-    if (typeof raw.pathPrefix !== 'string' || raw.pathPrefix !== expectedPathPrefix) {
-      errors.push(`pathPrefix must be '${expectedPathPrefix}'`);
+  if (isSite) {
+    if (typeof raw.pathPrefix !== 'string') {
+      errors.push('pathPrefix is required for site routes and must be a string');
+    } else if (!SITE_PATH_PREFIX_REGEX.test(raw.pathPrefix)) {
+      errors.push('pathPrefix must start with / and match ^/[a-zA-Z0-9._~/-]*$');
+    } else if (raw.pathPrefix === '/p' || raw.pathPrefix.startsWith('/p/')) {
+      errors.push("pathPrefix '/p' and anything under it is refused");
+    } else {
+      pathPrefix = raw.pathPrefix;
+    }
+  } else {
+    // Rule 2: pathPrefix is DERIVED as /p/<id>/ ; a caller-supplied pathPrefix that differs is an error
+    if ('pathPrefix' in raw && raw.pathPrefix !== undefined) {
+      if (typeof raw.pathPrefix !== 'string' || raw.pathPrefix !== expectedPathPrefix) {
+        errors.push(`pathPrefix must be '${expectedPathPrefix}'`);
+      }
+    }
+    pathPrefix = expectedPathPrefix;
+  }
+
+  // Collision check: two site routes on the same host and prefix are refused
+  if (isSite && pathPrefix && existingRoutes && ownerValid) {
+    const norm = normalizePathPrefix(pathPrefix);
+    const collision = existingRoutes.find(
+      (r) =>
+        r.id !== id &&
+        r.host === host &&
+        (r.kind === 'site' || r.kind === undefined) &&
+        normalizePathPrefix(r.pathPrefix) === norm
+    );
+    if (collision) {
+      errors.push(
+        `route collision: site route on host '${host}' and pathPrefix '${pathPrefix}' already exists (id: '${collision.id}')`
+      );
     }
   }
 
-  // Rule 4: host must exactly match an entry in policy.allowedHosts AND match ^[a-z0-9.-]+$
+  // Rule 4: host must match ^[a-z0-9.-]+$ AND (for site: policy.siteHosts; for /p: policy.allowedHosts)
   if (typeof raw.host === 'string') {
     if (!HOST_REGEX.test(host)) {
       errors.push('host must match ^[a-z0-9.-]+$');
     }
-    if (!policy.allowedHosts.includes(host)) {
-      errors.push(`host '${host}' is not in policy.allowedHosts`);
+    if (isSite) {
+      const siteHosts = policy.siteHosts ?? [];
+      if (!siteHosts.includes(host)) {
+        errors.push(`host '${host}' is not in policy.siteHosts`);
+      }
+    } else {
+      if (!policy.allowedHosts.includes(host)) {
+        errors.push(`host '${host}' is not in policy.allowedHosts`);
+      }
+    }
+  }
+
+  // Redirect options
+  let redirectExactFrom: string | undefined;
+  let redirectTo: string | undefined;
+
+  if (isSite) {
+    const hasFrom = 'redirectExactFrom' in raw && raw.redirectExactFrom !== undefined;
+    const hasTo = 'redirectTo' in raw && raw.redirectTo !== undefined;
+
+    if (hasFrom || hasTo) {
+      if (!hasFrom || typeof raw.redirectExactFrom !== 'string' || !raw.redirectExactFrom.startsWith('/')) {
+        errors.push('redirectExactFrom must be a string starting with /');
+      } else {
+        redirectExactFrom = raw.redirectExactFrom;
+      }
+
+      if (
+        !hasTo ||
+        typeof raw.redirectTo !== 'string' ||
+        !raw.redirectTo.startsWith('/') ||
+        /^[a-z][a-z0-9+.-]*:\/\//i.test(raw.redirectTo)
+      ) {
+        errors.push('redirectTo must be a relative path starting with /');
+      } else {
+        redirectTo = raw.redirectTo;
+      }
+
+      if (hasFrom && !hasTo) {
+        errors.push('redirectExactFrom requires redirectTo');
+      }
+      if (hasTo && !hasFrom) {
+        errors.push('redirectTo requires redirectExactFrom');
+      }
+    }
+  } else {
+    if (raw.redirectExactFrom !== undefined || raw.redirectTo !== undefined) {
+      errors.push('redirect options are only supported for site routes');
     }
   }
 
@@ -267,8 +363,8 @@ export function validateRouteSpec(
     }
   }
 
-  // stripPrefix
-  let stripPrefix = true;
+  // stripPrefix: defaults to false for site routes (--strip to enable), true for /p routes
+  let stripPrefix = isSite ? false : true;
   if ('stripPrefix' in raw && raw.stripPrefix !== undefined) {
     if (typeof raw.stripPrefix !== 'boolean') {
       errors.push('stripPrefix must be a boolean');
@@ -285,11 +381,18 @@ export function validateRouteSpec(
     id,
     owner,
     host,
-    pathPrefix: expectedPathPrefix,
+    pathPrefix,
     target,
     access,
     stripPrefix,
+    kind,
   };
+  if (redirectExactFrom !== undefined) {
+    spec.redirectExactFrom = redirectExactFrom;
+  }
+  if (redirectTo !== undefined) {
+    spec.redirectTo = redirectTo;
+  }
 
   return { ok: true, spec };
 }

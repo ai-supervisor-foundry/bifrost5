@@ -57,6 +57,7 @@ All commands go through `bin/edgectl`, which runs the CLI under `flock`.
 | Command | Does | Needs `EDGEKIT_ENABLED=1` |
 |---------|------|---------------------------|
 | `register --owner <o> --name <n> --host <h> --target <http://ip:port> [--access private\|public] [--no-strip]` | Creates a route, or updates it if the spec differs. Prints the spec as JSON | yes |
+| `register --site --owner <o> --name <n> --host <h> --path-prefix </x> --target <http://ip:port> [--access private\|public] [--no-strip] [--redirect-exact-from </> --redirect-to </y/>]` | Creates a site route with a custom path prefix. Prints the spec as JSON | yes |
 | `unregister <id>` | Removes the route and its rendered file. Idempotent, exits 0 when already removed | yes |
 | `list` | Prints all routes as JSON | no |
 | `reconcile` | Removes rendered files that have no matching route, and re-creates missing ones | yes |
@@ -64,13 +65,15 @@ All commands go through `bin/edgectl`, which runs the CLI under `flock`.
 ```bash
 bin/edgectl register --owner alice --name blog \
   --host sites.example.com --target http://10.20.0.5:3000
+bin/edgectl register --site --owner alice --name portal \
+  --host portal.example.com --path-prefix /portal --target http://10.20.0.5:3000
 bin/edgectl list
 bin/edgectl unregister alice--blog
 ```
 
 Exit codes: `0` success, `2` validation or usage error (including the per-owner cap and the registration rate limit), `3` mutation while disabled, `1` other failure.
 
-The route ID is `<owner>--<name>`, and the public path is `/p/<id>/`; a request to the bare `/p/<id>` (no trailing slash) redirects to `/p/<id>/` so relative asset URLs resolve.
+The route ID is `<owner>--<name>`. For standard routes, the public path is `/p/<id>/`; a request to the bare `/p/<id>` (no trailing slash) redirects to `/p/<id>/` so relative asset URLs resolve. For site routes (`--site`), the path layout is defined by `--path-prefix </x>` (strip prefix defaults to false, use `--strip` to enable), and optional `--redirect-exact-from <from> --redirect-to <to>` configures a root or path redirect using a relative Location.
 
 ## Cloudflare edge commands
 
@@ -105,6 +108,7 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
 {
   "reservedOwners": ["ops", "system", "internal"],
   "allowedHosts": ["sites.example.com", "test.example.com"],
+  "siteHosts": ["portal.example.com"],
   "ownerCidrs": {
     "alice": ["10.20.0.0/16"],
     "bob": ["10.30.0.0/16"]
@@ -114,7 +118,8 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
 }
 ```
 
-- `allowedHosts`: the only hosts a route may use.
+- `allowedHosts`: the only hosts a standard `/p` route may use.
+- `siteHosts`: the only hosts a site route (`--site`) may use (optional, default none).
 - `ownerCidrs`: the IPv4 ranges each owner's targets must fall in.
 - `reservedOwners`: merged with the built-in list `DEFAULT_RESERVED_OWNERS` in `src/domain/routeSpec.ts`. A trailing `*` matches a prefix.
 - `denyIps`: when set, replaces the default deny list (`127.0.0.0/8`, `169.254.0.0/16`, `0.0.0.0/8`).
@@ -124,9 +129,9 @@ Missing `CF_API_TOKEN` (or the other required `CF_*` variable for that subcomman
 
 1. Owner matches `^[a-z0-9]+$`, so no hyphens. Name matches `^[a-z0-9][a-z0-9-]{0,38}$`. This stops `alice` and `alice-bob` from colliding.
 2. Reserved owners are refused.
-3. Host must be in `allowedHosts` and match `^[a-z0-9.-]+$`.
+3. Host must match `^[a-z0-9.-]+$`, and be in `allowedHosts` (for `/p` routes) or `siteHosts` (for site routes).
 4. Target must be `http://<IPv4 literal>:<port>`. DNS names and IPv6 are refused. The IP must be inside the owner's CIDRs and outside the deny list.
-5. `pathPrefix` is always `/p/<id>/`. A caller-supplied value that differs is an error.
+5. For standard routes, `pathPrefix` is always `/p/<id>/` (a caller-supplied value that differs is an error). For site routes, `pathPrefix` must start with `/` and match `^/[a-zA-Z0-9._~/-]*$`, `/p` and anything under it is refused, and two site routes on the same host and prefix collide and are refused.
 6. `--access public` requires the owner to be in `publicOwners`.
 7. Per-owner route cap (20) and registration rate limit (10 per 60-second window) apply.
 8. Writes are atomic: a `.tmp` file, then rename.

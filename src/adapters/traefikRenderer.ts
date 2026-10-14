@@ -50,6 +50,7 @@ export class TraefikFileRenderer implements RouteRenderPort {
     }
 
     const pathPrefix = spec.pathPrefix.replace(/\/+$/, '');
+    const isSite = spec.kind === 'site';
 
     // Middlewares in exact order:
     // 1. edgekit-security@file FIRST
@@ -65,51 +66,117 @@ export class TraefikFileRenderer implements RouteRenderPort {
       middlewares.push('edgekit-access-jwt@file');
     }
 
-    const barePath = `/p/${spec.id}`;
-    const slashPath = `/p/${spec.id}/`;
-    const bareRouterId = `${spec.id}-bare`;
-    const slashMiddlewareId = `slash-${spec.id}`;
+    let httpObj: Record<string, any>;
 
-    const httpObj: Record<string, any> = {
-      routers: {
+    if (isSite) {
+      const routers: Record<string, any> = {
         [spec.id]: {
-          rule: `Host(\`${spec.host}\`) && PathPrefix(\`${slashPath}\`)`,
+          rule: `Host(\`${spec.host}\`) && PathPrefix(\`${spec.pathPrefix}\`)`,
           service: spec.id,
           middlewares,
         },
-        [bareRouterId]: {
-          rule: `Host(\`${spec.host}\`) && Path(\`${barePath}\`)`,
+      };
+
+      const httpMiddlewares: Record<string, any> = {};
+
+      if (spec.stripPrefix) {
+        const stripPath = spec.pathPrefix.replace(/\/+$/, '') || '/';
+        httpMiddlewares[`strip-${spec.id}`] = {
+          stripPrefix: {
+            prefixes: [stripPath],
+          },
+        };
+      }
+
+      if (spec.redirectExactFrom && spec.redirectTo) {
+        const redirectRouterId = `${spec.id}-redirect`;
+        const redirectMwId = `redirect-${spec.id}`;
+
+        // Simplest option: redirect router has priority 100 (higher than prefix route's default rule-length priority, lower than probe-block 1000)
+        routers[redirectRouterId] = {
+          rule: `Host(\`${spec.host}\`) && Path(\`${spec.redirectExactFrom}\`)`,
+          priority: 100,
           service: 'noop@internal',
-          middlewares: ['edgekit-security@file', slashMiddlewareId],
-        },
-      },
-    };
+          middlewares: ['edgekit-security@file', redirectMwId],
+        };
 
-    httpObj.middlewares = {
-      [slashMiddlewareId]: {
-        redirectRegex: {
-          regex: `^https?://[^/]+/p/${spec.id}$`,
-          replacement: `/p/${spec.id}/`,
-          permanent: false,
-        },
-      },
-    };
+        const escapedFrom = spec.redirectExactFrom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex =
+          spec.redirectExactFrom === '/'
+            ? '^https?://[^/]+/?$'
+            : `^https?://[^/]+${escapedFrom}$`;
 
-    if (spec.stripPrefix) {
-      httpObj.middlewares[`strip-${spec.id}`] = {
-        stripPrefix: {
-          prefixes: [pathPrefix],
+        httpMiddlewares[redirectMwId] = {
+          redirectRegex: {
+            regex,
+            replacement: spec.redirectTo,
+            permanent: false,
+          },
+        };
+      }
+
+      httpObj = {
+        routers,
+      };
+
+      if (Object.keys(httpMiddlewares).length > 0) {
+        httpObj.middlewares = httpMiddlewares;
+      }
+
+      httpObj.services = {
+        [spec.id]: {
+          loadBalancer: {
+            servers: [{ url: spec.target }],
+          },
+        },
+      };
+    } else {
+      const barePath = `/p/${spec.id}`;
+      const slashPath = `/p/${spec.id}/`;
+      const bareRouterId = `${spec.id}-bare`;
+      const slashMiddlewareId = `slash-${spec.id}`;
+
+      httpObj = {
+        routers: {
+          [spec.id]: {
+            rule: `Host(\`${spec.host}\`) && PathPrefix(\`${slashPath}\`)`,
+            service: spec.id,
+            middlewares,
+          },
+          [bareRouterId]: {
+            rule: `Host(\`${spec.host}\`) && Path(\`${barePath}\`)`,
+            service: 'noop@internal',
+            middlewares: ['edgekit-security@file', slashMiddlewareId],
+          },
+        },
+      };
+
+      httpObj.middlewares = {
+        [slashMiddlewareId]: {
+          redirectRegex: {
+            regex: `^https?://[^/]+/p/${spec.id}$`,
+            replacement: `/p/${spec.id}/`,
+            permanent: false,
+          },
+        },
+      };
+
+      if (spec.stripPrefix) {
+        httpObj.middlewares[`strip-${spec.id}`] = {
+          stripPrefix: {
+            prefixes: [pathPrefix],
+          },
+        };
+      }
+
+      httpObj.services = {
+        [spec.id]: {
+          loadBalancer: {
+            servers: [{ url: spec.target }],
+          },
         },
       };
     }
-
-    httpObj.services = {
-      [spec.id]: {
-        loadBalancer: {
-          servers: [{ url: spec.target }],
-        },
-      },
-    };
 
     const doc = {
       http: httpObj,
