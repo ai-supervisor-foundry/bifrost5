@@ -4,6 +4,7 @@ import process from 'node:process';
 import { RouteManager } from '../application/routeManager.ts';
 import { FileRouteStore } from '../adapters/fileStore.ts';
 import { TraefikFileRenderer } from '../adapters/traefikRenderer.ts';
+import { DockerTargetResolver } from '../adapters/dockerTargetResolver.ts';
 import { FileQuotaState } from '../adapters/fileQuotaState.ts';
 import { deriveId, isValidId, type Policy } from '../domain/routeSpec.ts';
 import type { AccessPolicy, Clock } from '../domain/ports.ts';
@@ -247,6 +248,8 @@ async function main() {
     quota,
     clock,
     policy,
+    aliasTargets: process.env.EDGEKIT_ALIAS_TARGETS === '1',
+    resolver: new DockerTargetResolver(),
   });
 
   try {
