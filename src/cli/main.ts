@@ -249,7 +249,7 @@ async function main() {
     clock,
     policy,
     aliasTargets: process.env.EDGEKIT_ALIAS_TARGETS === '1',
-    resolver: new DockerTargetResolver(),
+    resolver: new DockerTargetResolver({ network: process.env.EDGEKIT_NETWORK || 'edgekit-net' }),
   });
 
   try {

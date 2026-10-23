@@ -22,6 +22,7 @@ edge-kit publishes HTTP routes through Traefik's file provider, optionally behin
 | `EDGEKIT_HTTP_PORT` | `18080` | Host port for Traefik's HTTP entrypoint, bound to `127.0.0.1` in `compose.yml` |
 | `EDGEKIT_LOG_DIR` | `<repo>/logs` | Root for Traefik access logs (`traefik/access.log`) used by log rotation |
 | `EDGEKIT_ALIAS_TARGETS` | `0` | `1` allows allowlisted Docker network alias targets (`ownerTargets` in policy) and resolves them at reconcile |
+| `EDGEKIT_NETWORK` | `edgekit-net` | Docker network inspected to resolve alias targets when `EDGEKIT_ALIAS_TARGETS=1` |
 | `EDGEKIT_TARGET_PROBE` | unset | `1` enables `edgectl check`. Unset prints `check disabled (EDGEKIT_TARGET_PROBE not set)` and exits 0 |
 | `EDGEKIT_ROTATE_DAYS` | `5` | Minimum days between Traefik log rotations |
 | `EDGEKIT_TRAEFIK_CONTAINER` | `edgekit-traefik-1` | Container signalled with USR1 after rotation |
