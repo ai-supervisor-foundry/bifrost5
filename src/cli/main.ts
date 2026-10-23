@@ -222,7 +222,10 @@ async function main() {
     // Report only: reads the store, never writes or removes anything.
     try {
       const routes = await new FileRouteStore(stateDir).list();
-      const results = await checkRoutes(routes, fetch);
+      const resolver = new DockerTargetResolver({ network: process.env.EDGEKIT_NETWORK || 'edgekit-net' });
+      const results = await checkRoutes(routes, fetch, {
+        resolveHost: async (host) => (await resolver.resolve(host)).map((t) => t.ip),
+      });
       if (flags['json'] === true) {
         process.stdout.write(JSON.stringify(results, null, 2) + '\n');
       } else {
