@@ -93,3 +93,15 @@ export interface AccessPort {
     opts: AccessEnsureOpts
   ): Promise<{ changed: boolean; diff?: string }>;
 }
+
+export type ResolvedTarget = {
+  ip: string;
+  container: string;
+  labels?: Record<string, string>;
+  /** Network subnet (CIDR) when the resolver knows it. */
+  subnet?: string;
+};
+
+export interface TargetResolverPort {
+  resolve(alias: string): Promise<ResolvedTarget[]>;
+}
