@@ -128,6 +128,7 @@ Gate: `npm run ci` (`./scripts/ci.sh`). It stops at the first failing step, prin
 | e2e in temp dirs | `./scripts/e2e-local.sh` | no |
 | Integration: Traefik loads generated config | `./tests/integration/traefik.sh` | yes |
 | Integration: real request path through Traefik | `./tests/integration/traefik-request.sh` | yes |
+| Integration: alias target survives backend recreate (502 when down) | `./tests/integration/alias.sh` | yes |
 
 Fast loop: `npm test`. Full proof: `npm run ci`.
 
