@@ -10,6 +10,7 @@ import type { AccessPolicy, Clock } from '../domain/ports.ts';
 import { CloudflareTunnelIngressAdapter } from '../adapters/cloudflareIngress.ts';
 import { CloudflareDnsAdapter } from '../adapters/cloudflareDns.ts';
 import { CloudflareAccessAdapter } from '../adapters/cloudflareAccess.ts';
+import { checkRoutes } from '../application/targetCheck.ts';
 import { runEdgeAccess, runEdgeDns, runEdgeIngress } from './edgeCommands.ts';
 
 class RealClock implements Clock {
@@ -210,6 +211,29 @@ async function main() {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`Failed to load policy: ${msg}\n`);
     process.exit(1);
+  }
+
+  if (command === 'check') {
+    if (process.env.EDGEKIT_TARGET_PROBE !== '1') {
+      process.stdout.write('check disabled (EDGEKIT_TARGET_PROBE not set)\n');
+      process.exit(0);
+    }
+    // Report only: reads the store, never writes or removes anything.
+    try {
+      const routes = await new FileRouteStore(stateDir).list();
+      const results = await checkRoutes(routes, fetch);
+      if (flags['json'] === true) {
+        process.stdout.write(JSON.stringify(results, null, 2) + '\n');
+      } else {
+        for (const r of results) {
+          process.stdout.write(`${r.ok ? 'OK  ' : 'FAIL'} ${r.id} ${r.target}${r.reason ? ` ${r.reason}` : ''}\n`);
+        }
+      }
+      process.exit(results.some((r) => !r.ok) ? 1 : 0);
+    } catch (err: unknown) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    }
   }
 
   const store = new FileRouteStore(stateDir);

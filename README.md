@@ -21,6 +21,8 @@ edge-kit publishes HTTP routes through Traefik's file provider, optionally behin
 | `EDGEKIT_ENABLED` | `0` | Must be `1` for `register`, `unregister` and `reconcile`. Otherwise they exit 3. `list` always works |
 | `EDGEKIT_HTTP_PORT` | `18080` | Host port for Traefik's HTTP entrypoint, bound to `127.0.0.1` in `compose.yml` |
 | `EDGEKIT_LOG_DIR` | `<repo>/logs` | Root for Traefik access logs (`traefik/access.log`) used by log rotation |
+| `EDGEKIT_ALIAS_TARGETS` | `0` | `1` allows allowlisted Docker network alias targets (`ownerTargets` in policy) and resolves them at reconcile |
+| `EDGEKIT_TARGET_PROBE` | unset | `1` enables `edgectl check`. Unset prints `check disabled (EDGEKIT_TARGET_PROBE not set)` and exits 0 |
 | `EDGEKIT_ROTATE_DAYS` | `5` | Minimum days between Traefik log rotations |
 | `EDGEKIT_TRAEFIK_CONTAINER` | `edgekit-traefik-1` | Container signalled with USR1 after rotation |
 | `EDGEKIT_REOPEN_TIMEOUT` | `10` | Seconds to wait for `access.log` to reappear after rotation |
@@ -61,6 +63,7 @@ All commands go through `bin/edgectl`, which runs the CLI under `flock`.
 | `unregister <id>` | Removes the route and its rendered file. Idempotent, exits 0 when already removed | yes |
 | `list` | Prints all routes as JSON | no |
 | `reconcile` | Removes rendered files that have no matching route, and re-creates missing ones | yes |
+| `check [--json]` | GETs each route target and fails (exit 1) on the `X-Edgekit-Notfound: 1` header, no answer, or 5xx on every retry. Report only: never writes or removes routes. Needs `EDGEKIT_TARGET_PROBE=1`. `scripts/edgekit-check.timer` runs it every 5 minutes | no |
 
 ```bash
 bin/edgectl register --owner alice --name blog \
