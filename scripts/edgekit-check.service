@@ -1,0 +1,8 @@
+[Unit]
+Description=edge-kit target drift check (report only)
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/edgekit/env
+Environment=EDGEKIT_TARGET_PROBE=1
+ExecStart=/opt/edgekit/bin/edgectl check

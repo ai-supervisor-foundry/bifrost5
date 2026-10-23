@@ -59,6 +59,7 @@ if ! docker info >/dev/null 2>&1; then
 fi
 run_step "traefik integration" ./tests/integration/traefik.sh
 run_step "traefik request-path" ./tests/integration/traefik-request.sh
+run_step "alias integration" ./tests/integration/alias.sh
 
 CI_OK=1
 echo "CI gate passed."

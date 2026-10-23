@@ -20,7 +20,17 @@ export type Policy = {
   ownerCidrs: Record<string, string[]>;
   denyIps?: string[];
   publicOwners?: string[];
+  ownerTargets?: Record<string, string[]>;
 };
+
+export type ValidateOptions = { aliasTargets?: boolean };
+
+const KIT_SERVICE_NAMES = ['traefik', 'cloudflared', 'access-verifier', 'edgekit-notfound'];
+const ALIAS_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+export function isKitReservedName(name: string): boolean {
+  return KIT_SERVICE_NAMES.includes(name) || name.startsWith('edgekit-') || /^edgekit.*-1$/.test(name);
+}
 
 export function deriveId(owner: string, name: string): string {
   return `${owner}--${name}`;
@@ -116,7 +126,8 @@ function normalizePathPrefix(p: string): string {
 export function validateRouteSpec(
   input: unknown,
   policy: Policy,
-  existingRoutes?: RouteSpec[]
+  existingRoutes?: RouteSpec[],
+  options: ValidateOptions = {}
 ): { ok: true; spec: RouteSpec } | { ok: false; errors: string[] } {
   const errors: string[] = [];
 
@@ -314,7 +325,11 @@ export function validateRouteSpec(
   if (typeof raw.target === 'string') {
     const targetMatch = target.match(/^http:\/\/([^:/]+):(\d+)$/);
     if (!targetMatch) {
-      errors.push('target must be an http://<IPv4 literal>:<port> URL');
+      errors.push(
+        options.aliasTargets
+          ? 'target must be an http://<IPv4 literal or alias>:<port> URL'
+          : 'target must be an http://<IPv4 literal>:<port> URL'
+      );
     } else {
       const hostPart = targetMatch[1];
       const portPart = Number(targetMatch[2]);
@@ -322,7 +337,13 @@ export function validateRouteSpec(
         errors.push('target port must be between 1 and 65535');
       }
       const ip = parseIpv4(hostPart);
-      if (ip === null) {
+      if (ip === null && options.aliasTargets && ALIAS_RE.test(hostPart)) {
+        if (isKitReservedName(hostPart)) {
+          errors.push(`target alias '${hostPart}' is a reserved kit name`);
+        } else if (!ownerValid || !(policy.ownerTargets?.[owner] ?? []).includes(hostPart)) {
+          errors.push(`target alias '${hostPart}' is not in ownerTargets for owner '${owner}'`);
+        }
+      } else if (ip === null) {
         errors.push('target host must be a valid IPv4 literal');
       } else {
         parsedTargetIp = ip;

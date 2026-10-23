@@ -107,3 +107,13 @@ test('notfound/default.conf returns the branded 404 JSON body', async () => {
     'default.conf must return the exact branded 404 message'
   );
 });
+
+test('notfound serves X-Edgekit-Notfound header on 404', async () => {
+  const confPath = path.resolve(process.cwd(), 'notfound/default.conf');
+  const content = await fs.readFile(confPath, 'utf8');
+
+  assert.ok(
+    content.includes('add_header X-Edgekit-Notfound 1 always;'),
+    'default.conf must set X-Edgekit-Notfound: 1 on every response (always, so it appears on the 404)'
+  );
+});

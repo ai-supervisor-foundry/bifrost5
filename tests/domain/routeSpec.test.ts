@@ -342,3 +342,69 @@ for (const tc of cases) {
     }
   });
 }
+
+const aliasPolicy: Policy = {
+  ...defaultPolicy,
+  ownerTargets: { alice: ['myapp', 'traefik', 'edgekit-notfound', 'edgekit-traefik-1', 'a.b', 'MyApp'] },
+};
+
+function aliasSpec(host: string): Record<string, unknown> {
+  return {
+    owner: 'alice',
+    id: 'alice--blog',
+    host: 'sites.example.com',
+    pathPrefix: '/p/alice--blog/',
+    target: `http://${host}:3000`,
+    access: 'private',
+    stripPrefix: true,
+  };
+}
+
+test('accepts allowlisted alias target', () => {
+  const result = validateRouteSpec(aliasSpec('myapp'), aliasPolicy, undefined, { aliasTargets: true });
+  assert.equal(result.ok, true, result.ok ? '' : result.errors.join(', '));
+});
+
+test('rejects alias not in ownerTargets', () => {
+  const result = validateRouteSpec(aliasSpec('other'), aliasPolicy, undefined, { aliasTargets: true });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.errors.some(e => e.includes('ownerTargets')), true, result.errors.join('; '));
+  }
+});
+
+test('rejects kit service names and edgekit-*-1', () => {
+  for (const name of ['traefik', 'cloudflared', 'access-verifier', 'edgekit-notfound', 'edgekit-traefik-1']) {
+    const result = validateRouteSpec(aliasSpec(name), aliasPolicy, undefined, { aliasTargets: true });
+    assert.equal(result.ok, false, `expected rejection for ${name}`);
+  }
+});
+
+test('rejects dotted hostnames', () => {
+  for (const name of ['a.b', 'myapp.example.com', 'MyApp']) {
+    const result = validateRouteSpec(aliasSpec(name), aliasPolicy, undefined, { aliasTargets: true });
+    assert.equal(result.ok, false, `expected rejection for ${name}`);
+  }
+});
+
+test('alias skips ownerCidrs check', () => {
+  const policy: Policy = { ...aliasPolicy, ownerCidrs: {} };
+  const result = validateRouteSpec(aliasSpec('myapp'), policy, undefined, { aliasTargets: true });
+  assert.equal(result.ok, true, result.ok ? '' : result.errors.join(', '));
+});
+
+test('policy without ownerTargets loads unchanged', () => {
+  const ipOk = validateRouteSpec(aliasSpec('10.20.0.5'), defaultPolicy, undefined, { aliasTargets: true });
+  assert.equal(ipOk.ok, true);
+  const alias = validateRouteSpec(aliasSpec('myapp'), defaultPolicy, undefined, { aliasTargets: true });
+  assert.equal(alias.ok, false);
+});
+
+test('alias target rejected when aliasTargets option is off', () => {
+  const result = validateRouteSpec(aliasSpec('myapp'), aliasPolicy);
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.errors.some(e => e.includes('IPv4 literal')), true);
+    assert.equal(result.errors.some(e => e.includes('alias')), false);
+  }
+});

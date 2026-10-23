@@ -1,6 +1,6 @@
 import type { RouteSpec, Policy } from '../domain/routeSpec.ts';
-import { validateRouteSpec, isValidId } from '../domain/routeSpec.ts';
-import type { RouteStorePort, RouteRenderPort, QuotaStatePort, Clock } from '../domain/ports.ts';
+import { validateRouteSpec, isValidId, isKitReservedName } from '../domain/routeSpec.ts';
+import type { RouteStorePort, RouteRenderPort, QuotaStatePort, Clock, TargetResolverPort } from '../domain/ports.ts';
 
 export interface RouteManagerDeps {
   store: RouteStorePort;
@@ -8,6 +8,8 @@ export interface RouteManagerDeps {
   quota: QuotaStatePort;
   clock: Clock;
   policy: Policy;
+  resolver?: TargetResolverPort;
+  aliasTargets?: boolean;
 }
 
 export interface RouteManagerLimits {
@@ -36,6 +38,32 @@ function specsEqual(a: RouteSpec, b: RouteSpec): boolean {
   );
 }
 
+const DEFAULT_DENY_IPS = ['127.0.0.0/8', '169.254.0.0/16', '0.0.0.0/8'];
+
+function ipToNum(ip: string): number | null {
+  const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) return null;
+  const o = m.slice(1).map(Number);
+  if (o.some(n => n > 255)) return null;
+  return ((o[0] * 256 + o[1]) * 256 + o[2]) * 256 + o[3];
+}
+
+function inCidr(ip: string, cidr: string): boolean {
+  const [base, bitsStr] = cidr.split('/');
+  const a = ipToNum(ip);
+  const b = ipToNum(base);
+  const bits = bitsStr === undefined ? 32 : Number(bitsStr);
+  if (a === null || b === null || !(bits >= 0 && bits <= 32)) return false;
+  const size = 2 ** (32 - bits);
+  return Math.floor(a / size) === Math.floor(b / size);
+}
+
+function aliasOf(target: string): string | null {
+  const m = target.match(/^http:\/\/([^:/]+):\d+$/);
+  if (!m || ipToNum(m[1]) !== null) return null;
+  return m[1];
+}
+
 export class RouteManager {
   private deps: RouteManagerDeps;
   private maxRoutesPerOwner: number;
@@ -52,14 +80,55 @@ export class RouteManager {
     this.windowMs = limits?.windowMs ?? 60000;
   }
 
+  private async checkAlias(spec: RouteSpec): Promise<string[]> {
+    const alias = aliasOf(spec.target);
+    if (alias === null) return [];
+    const resolver = this.deps.resolver;
+    if (!resolver) return [`target alias '${alias}' requires a resolver`];
+    let found;
+    try {
+      found = await resolver.resolve(alias);
+    } catch (e) {
+      return [`target alias '${alias}' could not resolve: ${(e as Error).message}`];
+    }
+    if (found.length === 0) return [`target alias '${alias}' did not resolve to any container`];
+    if (found.length !== 1) {
+      return [`target alias '${alias}' must resolve to exactly one container (got ${found.length})`];
+    }
+    const t = found[0];
+    if (isKitReservedName(t.container) || t.labels?.['com.docker.compose.project'] === 'edgekit') {
+      return [`target alias '${alias}' resolves to kit container '${t.container}'`];
+    }
+    for (const cidr of this.deps.policy.denyIps ?? DEFAULT_DENY_IPS) {
+      if (inCidr(t.ip, cidr)) return [`target alias '${alias}' resolves to denied IP ${t.ip}`];
+    }
+    if (t.subnet && !inCidr(t.ip, t.subnet)) {
+      return [`target alias '${alias}' resolves outside network subnet`];
+    }
+    const owner = spec.owner;
+    const allowlisted = (this.deps.policy.ownerTargets?.[owner] ?? []).includes(alias);
+    if (!allowlisted && t.container !== owner && t.labels?.['edgekit.owner'] !== owner) {
+      return [`target alias '${alias}' is not owned by '${owner}'`];
+    }
+    return [];
+  }
+
   async register(input: unknown): Promise<RegisterResult> {
     const existingRoutes = await this.deps.store.list();
     // 1. Validation (pure, no I/O before validation passes)
-    const validationResult = validateRouteSpec(input, this.deps.policy, existingRoutes);
+    const validationResult = validateRouteSpec(input, this.deps.policy, existingRoutes, {
+      aliasTargets: this.deps.aliasTargets,
+    });
     if (!validationResult.ok) {
       throw new Error(`Validation failed: ${validationResult.errors.join(', ')}`);
     }
     const spec = validationResult.spec;
+    if (this.deps.aliasTargets) {
+      const aliasErrors = await this.checkAlias(spec);
+      if (aliasErrors.length > 0) {
+        throw new Error(`Validation failed: ${aliasErrors.join(', ')}`);
+      }
+    }
 
     // 2. Check existing spec in store
     const existing = await this.deps.store.get(spec.id);
@@ -120,10 +189,21 @@ export class RouteManager {
     const storeRoutes = await this.deps.store.list();
     const validStoreRouteMap = new Map<string, RouteSpec>();
     const skipped: { id: string; errors: string[] }[] = [];
+    const keep = new Set<string>();
 
     for (const r of storeRoutes) {
-      const valResult = validateRouteSpec(r, this.deps.policy);
+      const valResult = validateRouteSpec(r, this.deps.policy, undefined, {
+        aliasTargets: this.deps.aliasTargets,
+      });
       if (valResult.ok) {
+        if (this.deps.aliasTargets) {
+          const aliasErrors = await this.checkAlias(valResult.spec);
+          if (aliasErrors.length > 0) {
+            skipped.push({ id: r.id, errors: aliasErrors });
+            keep.add(r.id);
+            continue;
+          }
+        }
         validStoreRouteMap.set(r.id, valResult.spec);
       } else {
         skipped.push({ id: r.id, errors: valResult.errors });
@@ -138,7 +218,7 @@ export class RouteManager {
 
     // 1. Remove orphans: renderer ids not in the valid store routes
     for (const rid of rendererIds) {
-      if (!validStoreRouteMap.has(rid)) {
+      if (!validStoreRouteMap.has(rid) && !keep.has(rid)) {
         await this.deps.renderer.remove(rid);
         removed.push(rid);
       }

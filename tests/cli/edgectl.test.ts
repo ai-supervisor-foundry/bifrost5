@@ -838,3 +838,156 @@ test('cli register site route with redirect renders relative Location', async ()
   }
 });
 
+
+async function snapshotTree(dir: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  async function walk(d: string): Promise<void> {
+    for (const e of await fs.readdir(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) await walk(p);
+      else if (e.name !== 'edgectl.lock') out[p] = await fs.readFile(p, 'utf8');
+    }
+  }
+  await walk(dir);
+  return out;
+}
+
+async function checkFixture(handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void) {
+  const http = await import('node:http');
+  const server = http.createServer(handler);
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const port = (server.address() as import('node:net').AddressInfo).port;
+  const tmpDir = await createTempDir('edgectl-test-check-');
+  const stateDir = path.join(tmpDir, 'state');
+  const dynamicDir = path.join(tmpDir, 'dynamic');
+  const policyFile = path.join(tmpDir, 'policy.json');
+  await fs.mkdir(dynamicDir, { recursive: true });
+  await fs.mkdir(path.join(stateDir, 'desired', 'alice'), { recursive: true });
+  await fs.writeFile(policyFile, JSON.stringify(SAMPLE_POLICY));
+  await fs.writeFile(path.join(dynamicDir, 'alice--blog.yml'), 'rendered: true\n');
+  await fs.writeFile(
+    path.join(stateDir, 'desired', 'alice', 'alice--blog.json'),
+    JSON.stringify({
+      id: 'alice--blog', owner: 'alice', host: 'sites.example.com',
+      pathPrefix: '/p/alice--blog/', target: `http://127.0.0.1:${port}`,
+      access: 'private', stripPrefix: true,
+    })
+  );
+  const env = {
+    EDGEKIT_STATE_DIR: stateDir, EDGEKIT_DYNAMIC_DIR: dynamicDir,
+    EDGEKIT_POLICY: policyFile, EDGEKIT_ENABLED: '1',
+  };
+  const cleanup = async () => {
+    server.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  };
+  return { env, stateDir, dynamicDir, cleanup };
+}
+
+test('check disabled without EDGEKIT_TARGET_PROBE', async () => {
+  const f = await checkFixture((_q, s) => s.end('ok'));
+  try {
+    const res = await runEdgectl(['check'], { ...f.env, EDGEKIT_TARGET_PROBE: undefined });
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /check disabled \(EDGEKIT_TARGET_PROBE not set\)/);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('timer run never changes route files', async () => {
+  const f = await checkFixture((_q, s) => {
+    s.writeHead(404, { 'x-edgekit-notfound': '1' });
+    s.end('Howdy');
+  });
+  try {
+    const before = { d: await snapshotTree(f.dynamicDir), s: await snapshotTree(f.stateDir) };
+    const res = await runEdgectl(['check', '--json'], { ...f.env, EDGEKIT_TARGET_PROBE: '1' });
+    assert.equal(res.code, 1, res.stderr);
+    const parsed = JSON.parse(res.stdout);
+    assert.equal(parsed[0].id, 'alice--blog');
+    assert.equal(parsed[0].ok, false);
+    const after = { d: await snapshotTree(f.dynamicDir), s: await snapshotTree(f.stateDir) };
+    assert.deepEqual(after, before);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('check passes for healthy target', async () => {
+  const f = await checkFixture((_q, s) => s.end('app'));
+  try {
+    const res = await runEdgectl(['check'], { ...f.env, EDGEKIT_TARGET_PROBE: '1' });
+    assert.equal(res.code, 0, res.stderr);
+    assert.match(res.stdout, /alice--blog/);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+async function aliasNetworkFixture() {
+  const tmpDir = await createTempDir('edgectl-net-');
+  const stateDir = path.join(tmpDir, 'state');
+  const dynamicDir = path.join(tmpDir, 'dynamic');
+  const binDir = path.join(tmpDir, 'bin');
+  const argsLog = path.join(tmpDir, 'docker-args.log');
+  await fs.mkdir(stateDir, { recursive: true });
+  await fs.mkdir(dynamicDir, { recursive: true });
+  await fs.mkdir(binDir, { recursive: true });
+  const policyPath = path.join(tmpDir, 'policy.json');
+  await fs.writeFile(
+    policyPath,
+    JSON.stringify({
+      reservedOwners: ['apps', 'admin', 'api', 'control', 'connect'],
+      allowedHosts: ['sites.example.com'],
+      ownerCidrs: { alice: ['10.20.0.0/16'] },
+      ownerTargets: { alice: ['app--x'] },
+    })
+  );
+  const net = [
+    {
+      IPAM: { Config: [{ Subnet: '10.20.0.0/16' }] },
+      Containers: { c1: { Name: 'app-1', IPv4Address: '10.20.0.5/16', Aliases: ['app--x'] } },
+    },
+  ];
+  const shim = `#!/bin/sh\necho "$@" >> "${argsLog}"\ncat <<'JSON'\n${JSON.stringify(net)}\nJSON\n`;
+  await fs.writeFile(path.join(binDir, 'docker'), shim, { mode: 0o755 });
+  const env = {
+    EDGEKIT_STATE_DIR: stateDir,
+    EDGEKIT_DYNAMIC_DIR: dynamicDir,
+    EDGEKIT_POLICY: policyPath,
+    EDGEKIT_ENABLED: '1',
+    EDGEKIT_ALIAS_TARGETS: '1',
+    PATH: `${binDir}:${process.env.PATH}`,
+  };
+  return { env, argsLog, cleanup: () => fs.rm(tmpDir, { recursive: true, force: true }) };
+}
+
+const ALIAS_REGISTER = [
+  'register', '--owner', 'alice', '--name', 'blog', '--host', 'sites.example.com',
+  '--target', 'http://app--x:3000',
+];
+
+test('EDGEKIT_NETWORK selects the docker network inspected for alias targets', async () => {
+  const f = await aliasNetworkFixture();
+  try {
+    const res = await runEdgectl(ALIAS_REGISTER, { ...f.env, EDGEKIT_NETWORK: 'custom-net' });
+    assert.equal(res.code, 0, res.stderr);
+    const logged = await fs.readFile(f.argsLog, 'utf8');
+    assert.match(logged, /network inspect custom-net\b/);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('alias targets default to the edgekit-net network', async () => {
+  const f = await aliasNetworkFixture();
+  try {
+    const res = await runEdgectl(ALIAS_REGISTER, { ...f.env, EDGEKIT_NETWORK: undefined });
+    assert.equal(res.code, 0, res.stderr);
+    const logged = await fs.readFile(f.argsLog, 'utf8');
+    assert.match(logged, /network inspect edgekit-net\b/);
+  } finally {
+    await f.cleanup();
+  }
+});
