@@ -56,4 +56,5 @@ services:
 
 networks:
   edgekit-net:
+    external: true
     name: edgekit-net
