@@ -164,7 +164,7 @@ async function runEdgeCli(
         }
 
         const adapter = new CloudflareAccessAdapter({ fetch, accountId, token });
-        const result = await runEdgeAccess(adapter, hostname, name, policy, apply);
+        const result = await runEdgeAccess(adapter, hostname, name, policy, apply, flags['oauth'] === true ? MANAGED_OAUTH_AGENT : undefined);
         process.stdout.write(JSON.stringify(result, null, 2) + '\n');
         process.exit(0);
         break;

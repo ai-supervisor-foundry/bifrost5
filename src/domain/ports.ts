@@ -72,12 +72,15 @@ export interface AccessApp {
   id: string;
   name: string;
   domain: string;
+  aud?: string;
   policies?: AccessPolicy[];
   [key: string]: unknown;
 }
 
 export interface AccessEnsureOpts {
   dryRun: boolean;
+  /** Managed OAuth for non-browser clients (MCP). Passed through as `oauth_configuration`. */
+  oauth?: unknown;
 }
 
 export interface AccessPort {
@@ -87,7 +90,7 @@ export interface AccessPort {
     name: string,
     policy: AccessPolicy,
     opts: AccessEnsureOpts
-  ): Promise<{ changed: boolean; appId?: string; diff?: string }>;
+  ): Promise<{ changed: boolean; appId?: string; aud?: string; diff?: string }>;
   remove(
     hostname: string,
     opts: AccessEnsureOpts

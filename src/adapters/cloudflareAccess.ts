@@ -9,12 +9,16 @@ export interface AccessAppRaw {
   id: string;
   name: string;
   domain: string;
+  aud?: string;
+  type?: string;
+  oauth_configuration?: unknown;
   policies?: unknown[];
   [key: string]: unknown;
 }
 
 export interface CloudflareAccessListResponse {
   result?: AccessAppRaw[];
+  result_info?: unknown;
   success?: boolean;
   errors?: unknown[];
   messages?: unknown[];
@@ -23,9 +27,23 @@ export interface CloudflareAccessListResponse {
 
 /**
  * Cloudflare Access Applications API endpoint path template.
- * UNVERIFIED: this path has not been checked against the Cloudflare API reference yet.
+ * Verified 2026-10-24 against the Cloudflare OpenAPI spec: /accounts/{account_id}/access/apps (served under /client/v4).
+ * Create/update bodies need `type: 'self_hosted'` and `domain`; responses carry `aud`; list is paginated via `result_info`.
  */
 export const ACCESS_APPS_PATH_TEMPLATE = '/client/v4/accounts/{account_id}/access/apps';
+
+const LIST_PAGE_SIZE = 50;
+
+/** The live API returns policies enriched with id/uid/name/precedence/timestamps; compare only what we set. */
+export function comparablePolicy(p: unknown): string {
+  const x = (p ?? {}) as Record<string, unknown>;
+  return JSON.stringify({
+    decision: x.decision,
+    include: x.include ?? [],
+    exclude: x.exclude ?? [],
+    require: x.require ?? [],
+  });
+}
 
 function redactToken(message: string, token: string): string {
   if (!token) return message;
@@ -40,6 +58,18 @@ export function sanitizeError(err: unknown, token: string): Error {
     safeErr.stack = redactToken(err.stack, token);
   }
   return safeErr;
+}
+
+/** Request body per the Cloudflare ref: `type` and `domain` are required; inline policies need a name. */
+export function appBody(hostname: string, name: string, policies: AccessPolicy[], oauth?: unknown) {
+  const body: Record<string, unknown> = {
+    type: 'self_hosted',
+    name,
+    domain: hostname,
+    policies: policies.map((p, i) => ({ name: `${name} policy ${i + 1}`, ...p })),
+  };
+  if (oauth !== undefined) body.oauth_configuration = oauth;
+  return body;
 }
 
 export class CloudflareAccessAdapter implements AccessPort {
@@ -70,7 +100,19 @@ export class CloudflareAccessAdapter implements AccessPort {
   }
 
   private async listApps(): Promise<AccessApp[]> {
-    const url = this.getBaseUrl();
+    const all: AccessApp[] = [];
+    let page = 1;
+    for (;;) {
+      const { apps, totalPages } = await this.listPage(page);
+      all.push(...apps);
+      if (page >= totalPages) break;
+      page += 1;
+    }
+    return all;
+  }
+
+  private async listPage(page: number): Promise<{ apps: AccessApp[]; totalPages: number }> {
+    const url = `${this.getBaseUrl()}?page=${page}&per_page=${LIST_PAGE_SIZE}`;
     let res: Response;
     try {
       res = await this.fetchFn(url, {
@@ -104,12 +146,16 @@ export class CloudflareAccessAdapter implements AccessPort {
       throw new Error('Invalid Access apps list response: missing result array');
     }
 
-    return bodyObj.result.map((app) => ({
+    const totalPages = Number((bodyObj.result_info as { total_pages?: number } | undefined)?.total_pages ?? 1);
+    const apps = bodyObj.result.map((app) => ({
       id: String(app.id),
       name: String(app.name),
       domain: String(app.domain),
+      aud: typeof app.aud === 'string' ? app.aud : undefined,
+      oauth_configuration: app.oauth_configuration,
       policies: Array.isArray(app.policies) ? (app.policies as AccessPolicy[]) : undefined,
     }));
+    return { apps, totalPages: Number.isFinite(totalPages) && totalPages > 0 ? totalPages : 1 };
   }
 
   async list(): Promise<AccessApp[]> {
@@ -125,17 +171,19 @@ export class CloudflareAccessAdapter implements AccessPort {
     name: string,
     policy: AccessPolicy,
     opts: AccessEnsureOpts
-  ): Promise<{ changed: boolean; appId?: string; diff?: string }> {
+  ): Promise<{ changed: boolean; appId?: string; aud?: string; diff?: string }> {
     try {
       const apps = await this.listApps();
       const existing = apps.find((a) => a.domain === hostname);
       const desiredPolicies = [policy];
 
       if (existing) {
-        const samePolicies = JSON.stringify(existing.policies ?? []) === JSON.stringify(desiredPolicies);
-        if (existing.name === name && samePolicies) {
+        const samePolicies =
+          (existing.policies ?? []).map(comparablePolicy).join('|') === desiredPolicies.map(comparablePolicy).join('|');
+        const sameOauth = opts.oauth === undefined || JSON.stringify(existing.oauth_configuration ?? null) === JSON.stringify(opts.oauth);
+        if (existing.name === name && samePolicies && sameOauth) {
           // Idempotent: nothing to change
-          return { changed: false, appId: existing.id, diff: '' };
+          return { changed: false, appId: existing.id, aud: existing.aud, diff: '' };
         }
 
         const diff = `--- ${hostname} AccessApp ${JSON.stringify({ name: existing.name, policies: existing.policies ?? [] })}\n`
@@ -145,8 +193,8 @@ export class CloudflareAccessAdapter implements AccessPort {
           return { changed: true, appId: existing.id, diff };
         }
 
-        await this.updateApp(existing.id, hostname, name, desiredPolicies);
-        return { changed: true, appId: existing.id, diff };
+        await this.updateApp(existing.id, hostname, name, desiredPolicies, opts.oauth);
+        return { changed: true, appId: existing.id, aud: existing.aud, diff };
       }
 
       const diff = `+ ${hostname} AccessApp ${JSON.stringify({ name, policies: desiredPolicies })}`;
@@ -155,8 +203,8 @@ export class CloudflareAccessAdapter implements AccessPort {
         return { changed: true, diff };
       }
 
-      const appId = await this.createApp(hostname, name, desiredPolicies);
-      return { changed: true, appId, diff };
+      const created = await this.createApp(hostname, name, desiredPolicies, opts.oauth);
+      return { changed: true, appId: created.id, aud: created.aud, diff };
     } catch (err) {
       throw sanitizeError(err, this.token);
     }
@@ -187,14 +235,19 @@ export class CloudflareAccessAdapter implements AccessPort {
     }
   }
 
-  private async createApp(hostname: string, name: string, policies: AccessPolicy[]): Promise<string | undefined> {
+  private async createApp(
+    hostname: string,
+    name: string,
+    policies: AccessPolicy[],
+    oauth?: unknown
+  ): Promise<{ id?: string; aud?: string }> {
     const res = await this.fetchFn(this.getBaseUrl(), {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ name, domain: hostname, policies }),
+      body: JSON.stringify(appBody(hostname, name, policies, oauth)),
     });
 
     if (!res.ok) {
@@ -208,21 +261,21 @@ export class CloudflareAccessAdapter implements AccessPort {
       // Fallback if no JSON response
     }
 
-    const createdId = (json && typeof json === 'object' && (json as any).result && (json as any).result.id)
-      ? String((json as any).result.id)
-      : undefined;
-
-    return createdId;
+    const result = json && typeof json === 'object' ? (json as any).result : undefined;
+    return {
+      id: result?.id ? String(result.id) : undefined,
+      aud: typeof result?.aud === 'string' ? result.aud : undefined,
+    };
   }
 
-  private async updateApp(appId: string, hostname: string, name: string, policies: AccessPolicy[]): Promise<void> {
+  private async updateApp(appId: string, hostname: string, name: string, policies: AccessPolicy[], oauth?: unknown): Promise<void> {
     const res = await this.fetchFn(this.getAppUrl(appId), {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${this.token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ name, domain: hostname, policies }),
+      body: JSON.stringify(appBody(hostname, name, policies, oauth)),
     });
 
     if (!res.ok) {
