@@ -12,6 +12,7 @@ export interface EdgeCommandOutput {
   diff?: string;
   recordId?: string;
   appId?: string;
+  aud?: string;
 }
 
 /**
@@ -45,8 +46,19 @@ export async function runEdgeAccess(
   hostname: string,
   name: string,
   policy: AccessPolicy,
-  apply: boolean
+  apply: boolean,
+  oauth?: unknown
 ): Promise<EdgeCommandOutput> {
-  const result = await port.ensure(hostname, name, policy, { dryRun: !apply });
-  return { hostname, changed: result.changed, applied: apply, diff: result.diff, appId: result.appId };
+  const result = await port.ensure(hostname, name, policy, { dryRun: !apply, oauth });
+  return { hostname, changed: result.changed, applied: apply, diff: result.diff, appId: result.appId, aud: result.aud };
 }
+
+/**
+ * Managed OAuth for MCP and other non-browser clients (Cloudflare Access acts as the authorization server).
+ * Short access token + long grant session, per the Cloudflare Managed OAuth guidance for CLI/agent use.
+ */
+export const MANAGED_OAUTH_AGENT = {
+  enabled: true,
+  dynamic_client_registration: { enabled: true, allow_any_on_localhost: true, allow_any_on_loopback: true },
+  grant: { access_token_lifetime: '15m', session_duration: '336h' },
+} as const;
