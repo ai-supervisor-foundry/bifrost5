@@ -231,14 +231,14 @@ EOF
       elif ! edgectl2 register --owner alice --name e2epriv --host sites.example.com \
         --target "http://${BACKEND_IP}:80" >/dev/null 2>&1; then
         fail_step "register alice--e2epriv failed"
-      elif ! docker run -d --name "${TRAEFIK_NAME}" \
+      elif ! DOCKER_RUN_ERR="$(docker run -d --name "${TRAEFIK_NAME}" \
         -v "${TMP_DYNAMIC2}:/etc/traefik/dynamic:ro" \
         -p 127.0.0.1:18080:80 \
         traefik:v3.7.13 \
         --providers.file.directory=/etc/traefik/dynamic \
         --providers.file.watch=true \
-        --entrypoints.web.address=:80 >/dev/null 2>&1; then
-        fail_step "could not start throwaway Traefik container bound to 127.0.0.1:18080"
+        --entrypoints.web.address=:80 2>&1)"; then
+        fail_step "could not start throwaway Traefik container bound to 127.0.0.1:18080: ${DOCKER_RUN_ERR}"
       else
         BODY="${TMP_BASE}/body"
         HEADERS="${TMP_BASE}/headers"

@@ -211,11 +211,21 @@ export function createVerifierServer(opts: CreateVerifierServerOptions): http.Se
   return http.createServer((req, res) => {
     handleRequest(req, res, { aud: configuredAudiences, jwks, now: opts.now }).catch(() => {
       if (!res.headersSent) {
-        res.writeHead(401);
+        reply(res, 401);
+      } else {
+        res.end();
       }
-      res.end();
     });
   });
+}
+
+const REASONS: Record<number, string> = { 200: 'ok', 401: 'unauthorized', 404: 'not found' };
+
+// Every response carries a Content-Type (default text/plain). Traefik forwards a non-2xx verifier answer to the
+// browser as is; without a type, and with nosniff set, the browser saves the body as a file instead of showing it.
+function reply(res: http.ServerResponse, status: number): void {
+  res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(REASONS[status] ?? 'error');
 }
 
 async function handleRequest(
@@ -225,21 +235,18 @@ async function handleRequest(
 ): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (req.method !== 'GET' || url.pathname !== '/verify') {
-    res.writeHead(404);
-    res.end();
+    reply(res, 404);
     return;
   }
 
   const token = req.headers['cf-access-jwt-assertion'];
   if (typeof token !== 'string' || token.length === 0) {
-    res.writeHead(401);
-    res.end();
+    reply(res, 401);
     return;
   }
 
   const valid = await verifyAccessJwt(token, { aud: opts.aud, jwks: opts.jwks, now: opts.now });
-  res.writeHead(valid ? 200 : 401);
-  res.end();
+  reply(res, valid ? 200 : 401);
 }
 
 function isMainModule(): boolean {

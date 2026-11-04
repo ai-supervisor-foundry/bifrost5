@@ -189,3 +189,18 @@ test('unknown route returns 404', async () => {
     assert.equal(res.status, 404);
   });
 });
+
+test('every verifier response has a text/plain content type so a browser never downloads it', async () => {
+  const { jwks } = generateKeyPairAndJwks(KID);
+  const fetcher: JwksFetcher = async () => jwks;
+  const now = () => Date.UTC(2026, 0, 1);
+
+  await withServer(fetcher, now, async (baseUrl) => {
+    const noToken = await fetch(`${baseUrl}/verify`);
+    assert.equal(noToken.status, 401);
+    assert.match(noToken.headers.get('content-type') ?? '', /^text\/plain/);
+    const badPath = await fetch(`${baseUrl}/nope`);
+    assert.equal(badPath.status, 404);
+    assert.match(badPath.headers.get('content-type') ?? '', /^text\/plain/);
+  });
+});
