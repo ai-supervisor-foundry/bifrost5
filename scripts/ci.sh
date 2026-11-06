@@ -45,6 +45,7 @@ run_step "check-standalone tests" bash tests/scripts/check-standalone.test.sh
 run_step "security-audit" ./scripts/security-audit.sh
 run_step "ops tests" bash tests/scripts/ops.test.sh
 run_step "rotate-traefik-logs tests" bash tests/scripts/rotate-traefik-logs.test.sh
+run_step "bootstrap tests" bash tests/scripts/bootstrap.test.sh
 run_step "e2e-local" ./scripts/e2e-local.sh
 
 if ! command -v docker >/dev/null 2>&1; then

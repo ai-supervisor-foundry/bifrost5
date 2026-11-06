@@ -78,6 +78,7 @@ Mutations with the switch off exit with code 3. `edgectl` refuses to run without
 | `EDGEKIT_LOG_DIR` | `<repo>/logs` | Root for Traefik access logs (`traefik/access.log`) |
 | `EDGEKIT_ROTATE_DAYS` | `5` | Minimum days between Traefik log rotations |
 | `EDGEKIT_TRAEFIK_CONTAINER` | `edgekit-traefik-1` | Container signalled with USR1 after rotation |
+| `EDGEKIT_ALERT_CMD` | none | Path to one executable that `traefik-guard.sh` runs with the alert message as its only argument (no shell). Unset: log only. Set it in `~/.config/edgekit/guard.env` |
 | `EDGEKIT_REOPEN_TIMEOUT` | `10` | Seconds to wait for `access.log` to reappear after rotation |
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never print or log it. Keep secret files at mode 600 |
 | `CF_ACCESS_TEAM_DOMAIN` | none | Required by `access-verifier`: Cloudflare Access team domain for JWKS (`https://<domain>/cdn-cgi/access/certs`) |
