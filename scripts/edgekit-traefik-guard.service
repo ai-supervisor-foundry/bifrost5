@@ -1,0 +1,7 @@
+[Unit]
+Description=edge-kit Traefik guard (restarts Traefik only after an unexpected exit)
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/edgekit/guard.env
+ExecStart=__EDGEKIT_ROOT__/scripts/traefik-guard.sh

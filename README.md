@@ -26,6 +26,7 @@ edge-kit publishes HTTP routes through Traefik's file provider, optionally behin
 | `EDGEKIT_TARGET_PROBE` | unset | `1` enables `edgectl check`. Unset prints `check disabled (EDGEKIT_TARGET_PROBE not set)` and exits 0 |
 | `EDGEKIT_ROTATE_DAYS` | `5` | Minimum days between Traefik log rotations |
 | `EDGEKIT_TRAEFIK_CONTAINER` | `edgekit-traefik-1` | Container signalled with USR1 after rotation |
+| `EDGEKIT_ALERT_CMD` | none | Path to one executable that `traefik-guard.sh` runs with the alert message as its only argument (no shell). Unset: log only. Set it in `~/.config/edgekit/guard.env` |
 | `EDGEKIT_REOPEN_TIMEOUT` | `10` | Seconds to wait for `access.log` to reappear after rotation |
 | `TUNNEL_TOKEN` | none | Cloudflare tunnel token for the `tunnel` profile. Never printed or logged. Keep files that hold it at mode 600 |
 | `CF_ACCESS_TEAM_DOMAIN` | none (required for `access-verifier`) | Cloudflare Access team domain the verifier fetches its JWKS from (`https://<domain>/cdn-cgi/access/certs`) |
@@ -38,6 +39,18 @@ edge-kit publishes HTTP routes through Traefik's file provider, optionally behin
 The CLI exits 1 unless all of `EDGEKIT_STATE_DIR`, `EDGEKIT_DYNAMIC_DIR` and `EDGEKIT_POLICY` are set, except for the `edge` commands below, which only touch Cloudflare account resources and need none of those three (the `bin/edgectl` wrapper still requires `EDGEKIT_STATE_DIR` to build its lock file path).
 
 ## Run the stack
+
+Quick start: `scripts/bootstrap.sh` (run from anywhere; `--yes` accepts every step, `--no-timers`, `--no-linger`). It explains and asks before each step: checks requirements, creates the log and state directories, starts the stack, installs the `edgekit-check` and `edgekit-traefik-guard` user timers, and offers `sudo loginctl enable-linger` so the timers survive a reboot. The guard restarts Traefik only after an unexpected exit. Running it again changes nothing. Undo: `systemctl --user disable --now edgekit-check.timer edgekit-traefik-guard.timer`.
+
+To be told when the guard acts, put an alert command in `~/.config/edgekit/guard.env`: `EDGEKIT_ALERT_CMD=/home/me/bin/edgekit-alert.sh`. It must be one executable and gets the message as its only argument. Generic webhook example:
+
+```bash
+#!/usr/bin/env bash
+curl -fsS -m 10 -H 'Content-Type: application/json' \
+  -d "$(jq -n --arg text "$1" '{text: $text}')" "$WEBHOOK_URL"
+```
+
+Manual steps (what the bootstrap does):
 
 ```bash
 export EDGEKIT_STATE_DIR=/var/lib/edgekit/state
