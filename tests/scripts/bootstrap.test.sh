@@ -173,6 +173,14 @@ FAKE_STATUS=running FAKE_LINGER=yes boot --yes
 ! calls_have "enable --now" && ! calls_have "compose up" && ! calls_have "sudo" || fail "rerun did duplicate work"
 pass "idempotent second run"
 
+# a unit the operator customised is never overwritten
+reset; mkdir -p "$UDIR"; printf '[Service]\nEnvironment=CUSTOM=1\n' > "$UDIR/edgekit-check.service"
+FAKE_STATUS=running FAKE_LINGER=yes boot --yes
+grep -q "CUSTOM=1" "$UDIR/edgekit-check.service" || fail "customised unit was overwritten"
+grep -q "kept your edgekit-check.service" "$TMP/out" || fail "should say the customised unit was kept"
+[ -f "$UDIR/edgekit-traefik-guard.service" ] && calls_have "enable --now" || fail "guard should still install"
+pass "customised unit kept, guard still installed"
+
 reset; FAKE_STATUS=running FAKE_LINGER=yes boot --yes
 ! calls_have "sudo" && calls_have "enable --now" || fail "linger yes should skip sudo"
 pass "linger already yes: no sudo"
