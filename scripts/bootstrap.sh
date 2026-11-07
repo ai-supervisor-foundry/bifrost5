@@ -94,7 +94,11 @@ elif ask "Install and enable the two user timers?"; then
   for u in "${UNITS[@]}"; do
     for ext in service timer; do
       tmp="$(mktemp)"; render "$ROOT/scripts/$u.$ext" > "$tmp"
-      if ! cmp -s "$tmp" "$UDIR/$u.$ext"; then cp "$tmp" "$UDIR/$u.$ext"; changed=1; fi
+      # Never overwrite a unit the operator customised (their env and paths would be lost).
+      if [ ! -e "$UDIR/$u.$ext" ]; then cp "$tmp" "$UDIR/$u.$ext"; changed=1
+      elif ! cmp -s "$tmp" "$UDIR/$u.$ext"; then
+        say "kept your $u.$ext: it differs from the kit's version ($ROOT/scripts/$u.$ext). Compare them if you want the kit's changes."
+      fi
       rm -f "$tmp"
     done
   done
